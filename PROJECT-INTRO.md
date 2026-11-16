@@ -40,7 +40,7 @@
 
 ---
 
-## 3. 十五个工具
+## 3. 十七个工具
 
 **创作链**
 
@@ -74,7 +74,7 @@
 
 ```powershell
 # 1. 安装
-dsh plugin --profile <你的profile> add .\dist\dsh-plugin-ai-diary-0.4.4.tgz
+dsh plugin --profile <你的profile> add .\dist\dsh-plugin-ai-diary-0.5.0.tgz
 
 # 2. 选题 → 剧本 → 出片（全程不消耗额度）
 node bin/ai-diary.mjs topics --count 3
@@ -134,7 +134,7 @@ assets/
 ```
 bin/ai-diary.mjs      命令行入口（不装 dsh 也能单独跑）
 src/
-  index.mjs           插件入口：15 个工具注册 + 技能注册
+  index.mjs           插件入口：17 个工具注册 + Config 设置 schema + 技能注册
   topics.mjs          题材库
   script.mjs          剧本编译
   engine.mjs          渲染引擎（canvas 逐帧合成 → ffmpeg 编码）
@@ -165,6 +165,11 @@ config/               客户端锚点、TTS、视频、更新源配置
 - TTS 三家都需要自备 key；无 key 时只有离线自检。
 
 ---
+
+## 8.1 设置与定时（0.5.0 新增）
+
+- 设置面板：Harness 官方设置读插件导出的 `Config`（schemastery）；配置落 `~/.ai-diary/settings.json`，环境变量 `MIMO_API_KEY` / `DASHSCOPE_API_KEY` / `MINIMAX_API_KEY` / `GITHUB_TOKEN` 优先。
+- 定时：`ai_diary_schedule { action: "enable", daily_at: "20:30" }` 打开，一天只跑一次，到点自动出片 → 有 key 才配音 → 填好投稿表单停在「立即投稿」前；默认关闭。
 
 ## 8. Roadmap
 
