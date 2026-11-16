@@ -7,7 +7,7 @@
 ## 安装（30 秒）
 
 ```bash
-dsh plugin --profile <你的profile> add "<插件包路径>\dist\dsh-plugin-ai-diary-0.5.0.tgz"
+dsh plugin --profile <你的profile> add "<插件包路径>\dist\dsh-plugin-ai-diary-0.6.0.tgz"
 ```
 
 桌面版（profile 被 Electron 独占）用一键脚本：
@@ -17,6 +17,20 @@ powershell -ExecutionPolicy Bypass -File .\install.ps1
 ```
 
 装完 `dsh --profile <profile> --dump-config` 里能看到 `ai-diary` 就成功了。详见 `INSTALL.md`。
+
+## 0.6.0 更新了什么
+
+- **自动投稿（真点按钮）**：设置里的 `publish.autoSubmit` 打开后，填完标题/声明/标签就自己点「立即投稿」；定时任务里同样按这个开关走。默认关，关着还是停在按钮前等你点——投稿是对外不可逆动作，所以默认不代点。
+- **评论自动回复 `ai_diary_comments`**：改成 `action` 用法 —— `calibrate`（打开评论管理页并回传截图 + 本机 OCR 结果）、`scan`（列出当前能读到的评论）、`auto`（按规则匹配并回复，`send` 默认 false 只出计划）、`watch`（挂一段时间，每 N 分钟扫一次）。
+  - 规则形如 `[{"match":"催更","reply":"今晚就更～"}]`，`match` 写 `*` 是兜底；`fallback` 支持 `{comment}` 占位。
+  - 每条只回一次：按评论文本指纹（sha1 前 12 位）记账，已回记录落在 `~/.ai-diary/settings.json` 的 `comments.replied`。
+  - 限速：单轮默认最多 3 条（上限 10），两条之间至少 8 秒；`watch` 默认 30 分钟、5 分钟一轮，日志写 `comments.watch`。
+- **怎么"看见"评论区**：客户端是 Electron，DOM 读不到文字，所以走「截图 → Windows 自带 OCR（`scripts/ocr.ps1`）→ 按界面文字定位」。小字认不准时会先 `scripts/crop.ps1` 把局部放大 3 倍再 OCR。
+- **不盲点**：进评论页是「点『互动管理』→ 认到『评论管理』→ 点 → 校验页面出现『评论管理/全部评论』」，任一步认不到就停下并给截图路径；点「回复」前会先把那一行放大认字，认不到就跳过；一旦出现「删除提醒」弹窗立刻点「取消」并终止本次自动回复。
+- **窗口置顶**：Windows 前台锁会拦掉 `SetForegroundWindow`，所以截图前会自动把客户端窗口顶到最前（必要时用 Alt+Tab 轮转并校验），否则截到的是压在上面的别的窗口。
+- **真机状态（重要）**：评论页导航、扫描、出计划、按行定位「回复」都已在真机跑通；点「发表回复」那一下还没跑通——客户端把按钮画成灰色小字，OCR 认不稳，流程会在填入前停下并提示你，不会乱点。这一版不宣称"全自动发评论成功"。
+- **命令行**：`node bin/ai-diary.mjs comments --action scan|calibrate|auto|watch`（`--send true` / `--max` / `--minutes` / `--interval`）。
+- 工具数仍是 17 个，本次只扩参数与动作。
 
 ## 0.5.0 更新了什么
 

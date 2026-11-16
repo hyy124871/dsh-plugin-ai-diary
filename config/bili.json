@@ -3,7 +3,7 @@
     "exe": "C:\\Program Files\\bilibili\\哔哩哔哩.exe",
     "exeEnv": "DIARY_BILI_CLIENT",
     "mainWindow": "哔哩哔哩",
-    "creatorWindow": "浏览器窗口",
+    "creatorWindow": "哔哩哔哩-浏览器窗口",
     "railUploadIcon": [0.032, 0.757]
   },
   "creator": {

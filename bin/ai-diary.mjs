@@ -304,6 +304,42 @@ async function main() {
     return;
   }
 
+  if (cmd === 'comments') {
+    const C = await import('../src/comments.mjs');
+    const action = String(flags.action || 'scan');
+    if (action === 'calibrate') {
+      const r = await C.calibrate(path.resolve('.'));
+      console.log(r.hint);
+      console.log('截图 ' + r.shot);
+      console.log('样例 ' + JSON.stringify(r.sample.slice(0, 6), null, 2));
+      return;
+    }
+    if (action === 'auto') {
+      const r = await C.autoReply(path.resolve('.'), {
+        send: flags.send === 'true',
+        maxPerRun: flags.max ? Number(flags.max) : undefined,
+        fallback: flags.fallback,
+      });
+      console.log(r.send ? `已发送 ${r.sent} 条` : `预演：计划 ${r.planned} 条`);
+      console.log(JSON.stringify(r.plan || r.results, null, 2));
+      return;
+    }
+    if (action === 'watch') {
+      const r = await C.watch(path.resolve('.'), {
+        minutes: flags.minutes ? Number(flags.minutes) : undefined,
+        intervalMinutes: flags.interval ? Number(flags.interval) : undefined,
+        send: flags.send === 'true',
+      });
+      console.log(`挂机 ${r.minutes} 分钟，${r.rounds} 轮，回复 ${r.sent} 条`);
+      return;
+    }
+    const r = await C.scan(path.resolve('.'), { saveShot: true });
+    console.log(`读到 ${r.comments.length} 条评论：`);
+    for (const c of r.comments) console.log('  · ' + c.text);
+    console.log('「回复」入口 ' + r.anchors.replyLabels + ' 个；截图 ' + r.page.shot);
+    return;
+  }
+
   if (cmd === 'settings') {
     const S = await import('../src/settings.mjs');
     const action = String(flags.action || 'get');

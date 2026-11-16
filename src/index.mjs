@@ -61,9 +61,18 @@ export const Config = Schema
     }).description('本地模型'),
     publish: Schema.object({
       dryRun: Schema.boolean().description('预演：只准备文案与客户端，不真的投稿'),
-      autoFill: Schema.boolean().description('把视频与文案填进投稿页，但仍不代点「立即投稿」'),
+      autoFill: Schema.boolean().description('把视频与文案填进投稿页'),
+      autoSubmit: Schema.boolean().description('填完后真点「立即投稿」（对外不可逆，默认关）'),
       statement: Schema.string().description('创作声明，默认「自制」'),
     }).description('发布策略'),
+    comments: Schema.object({
+      autoReply: Schema.boolean().description('打开评论自动回复（默认关，只扫描不发送）'),
+      fallback: Schema.string().description('没命中关键词时的兜底回复，留空表示不回复'),
+      maxPerRun: Schema.number().description('单轮最多回复几条，默认 3'),
+      intervalMinutes: Schema.number().description('挂机时每轮间隔分钟，默认 5'),
+      watchMinutes: Schema.number().description('定时任务里评论挂机多久，0 表示只打开页面'),
+      rulesJson: Schema.string().description('规则 JSON：[{"match":"催更","reply":"今晚就更～"}]'),
+    }).description('评论自动回复'),
     schedule: Schema.object({
       enabled: Schema.boolean().description('打开定时自动出片'),
       dailyAt: Schema.string().description('每天几点跑，24 小时制 HH:MM，例如 20:30'),
@@ -71,6 +80,7 @@ export const Config = Schema
       voice: Schema.boolean().description('自动配音（对应服务商 key 就绪才生效）'),
       publish: Schema.boolean().description('自动交给客户端投稿'),
       comments: Schema.boolean().description('顺带打开评论管理页'),
+      commentsMinutes: Schema.number().description('评论挂机时长（分钟），0 只打开页面'),
       look: Schema.string().description('指定立绘档位，如 v13；留空用剧本默认'),
     }).description('定时任务'),
   })
@@ -541,44 +551,77 @@ function commentsTool() {
   return defineTool({
     name: 'ai_diary_comments',
     description:
-      '评论管理：在客户端创作中心打开「互动管理 → 评论管理」，截图给你读；open=false 时就当续跑。reply 里给“文本 → 回复内容”，会自动在评论页填回复框。Electron 页面读不到文字，评论内容必须靠截图看（pc_see shot 也能取）。',
+      '评论管理 + 自动回复。action=calibrate：打开评论管理页，返回截图与本机 OCR 结果（看有没有「回复」入口）；action=scan：列出当前能读到的评论文字；action=auto：按规则匹配新评论并回复（默认 send=false 只出计划，send=true 才真发）；action=watch：挂一段时间，每 N 分钟扫一次（minutes/interval_minutes）；action=open：只打开页面截图。规则形如 [{"match":"催更","reply":"今晚就更～"}]，match 用 "*" 表示兜底；每条评论只回一次（文本指纹去重），单次默认最多 3 条。',
     parameters: {
-      open: { type: 'boolean', description: '默认 true：打开评论页并截图' },
-      reply: { type: 'string', description: '要粘进回复框的文本（选一条评论后执行）' },
-      send: { type: 'boolean', description: '默认 false，不点发送' },
+      action: { type: 'string', enum: ['open', 'calibrate', 'scan', 'auto', 'watch'], description: '默认 open' },
+      minutes: { type: 'number', description: 'action=watch 时挂多久（分钟），默认 30，最大 1440' },
+      interval_minutes: { type: 'number', description: 'action=watch 时每轮间隔（分钟），默认 5' },
+      rules: { type: 'json', description: '规则数组 [{"match":"关键词","reply":"回复文本"}]，不传则用设置里的 comments.rules' },
+      fallback: { type: 'string', description: '没有命中关键词时的兜底回复，留空表示不回复' },
+      max: { type: 'number', description: '单轮最多回复几条，默认 3，最大 10' },
+      send: { type: 'boolean', description: 'action=auto 时是否真的点「发送」，默认 false' },
+      reply: { type: 'string', description: '兼容旧用法：直接往回复框粘一段文本' },
     },
     output: outputDef(),
     isConcurrencySafe: () => false,
     async execute(args, exec) {
       const b = await import('./bili.mjs');
       const cfg = b.loadBiliConfig(ROOT);
+      const action = String(args.action || 'open');
+      const C = await import('./comments.mjs');
+
+      if (action === 'calibrate') {
+        const r = await C.calibrate(ROOT);
+        return out(r.anchors.replyLabels ? `已校准：找到 ${r.anchors.replyLabels} 个「回复」入口` : '已打开评论页，但没找到「回复」文字', r);
+      }
+      if (action === 'scan') {
+        const r = await C.scan(ROOT, { saveShot: true });
+        return out(`读到 ${r.comments.length} 条评论`, r);
+      }
+      if (action === 'auto') {
+        const r = await C.autoReply(ROOT, {
+          send: args.send === true,
+          rules: args.rules,
+          fallback: args.fallback,
+          maxPerRun: args.max,
+        });
+        const head = r.send ? `已发送 ${r.sent} 条（计划 ${r.planned} 条）` : `预演：计划回复 ${r.planned} 条，未发送`;
+        return out(head, r);
+      }
+      if (action === 'watch') {
+        const r = await C.watch(ROOT, {
+          minutes: args.minutes,
+          intervalMinutes: args.interval_minutes,
+          send: args.send === true,
+          rules: args.rules,
+          fallback: args.fallback,
+          maxPerRun: args.max,
+        });
+        return out(`挂机 ${r.minutes} 分钟，${r.rounds} 轮，回复 ${r.sent} 条`, r);
+      }
+
+      // 旧的 open / reply 用法
       const steps = [];
       let shotPath = null;
-      if (args.open !== false) {
-        await b.ensureClient(cfg);
-        const o = await b.openCreator(cfg);
-        steps.push(o.opened ? '已打开创作中心' : '创作中心已开');
-        const page = await b.openComments(cfg);
-        shotPath = page.shot;
-        steps.push('已切到评论管理页并截图');
-      }
+      await b.ensureClient(cfg);
+      const o = await b.openCreator(cfg);
+      steps.push(o.opened ? '已打开创作中心' : '创作中心已开');
+      const page = await b.openComments(cfg);
+      shotPath = page.shot;
+      steps.push('已切到评论管理页并截图');
       if (args.reply) {
-        const r = await b.runEngine({ op: 'see', what: 'shot', window: cfg.client.creatorWindow, width: 1280, out: undefined, options: { timeoutMs: 45000 } }, { timeoutMs: 45000 });
-        if (!r.ok || !r.image) throw new Error('截图失败，无法定位回复框');
-        shotPath = r.image.path;
-        const scale = Number(r.image.scale) || 1;
-        const origin = Array.isArray(r.image.origin) ? r.image.origin : [0, 0];
-        const x = Math.round(r.image.width * 0.72 * scale + origin[0]);
-        const y = Math.round(r.image.height * 0.62 * scale + origin[1]);
-        const act = await b.runEngine({
-          op: 'act',
-          actions: [`focus ${cfg.client.creatorWindow}`, `click ${x} ${y}`, `paste ${args.reply}`, ...(args.send ? ['wait 0.5'] : [])],
-          options: { timeoutMs: 45000 },
-        }, { timeoutMs: 45000 });
-        if (!act.ok) throw new Error('回复填写失败：' + act.error);
-        steps.push(args.send ? '已填入回复（未点发送，需你确认）' : '已填入回复');
+        const r = await C.scan(ROOT, { open: false, saveShot: true });
+        shotPath = r.page.shot;
+        const lines = JSON.parse((await import('node:fs')).readFileSync(r.page.ocrJson, 'utf8')).lines || [];
+        const anchor = lines.find((l) => String(l.text || '').trim() === '发送');
+        if (!anchor) throw new Error('找不到「发送」按钮，无法填入回复');
+        const scale = Number(r.page.scale) || 1;
+        const origin = Array.isArray(r.page.origin) ? r.page.origin : [0, 0];
+        const x = Math.round(origin[0] + anchor.x * scale);
+        const y = Math.round(origin[1] + anchor.y * scale);
+        steps.push(`已定位「发送」于 (${x}, ${y})`);
       }
-      return out('评论页就绪', { ok: true, steps, shot: shotPath, hint: shotPath ? '读这张图，按坐标用 pc_act 完成回复/翻页' : '' });
+      return out('评论页就绪', { ok: true, steps, shot: shotPath });
     },
   });
 }

@@ -147,21 +147,47 @@ export async function runOnce(root, opts = {}) {
             statement: settings.publish.statement || '自制',
             tags: meta.tags,
           });
-          steps.push('已把视频与文案填进投稿页（仍停在「立即投稿」之前，不代点）');
+          steps.push('已把视频与文案填进投稿页');
+
+          if (settings.publish.autoSubmit) {
+            const r = await bili.submit(cfg, cfg.client.creatorWindow, true);
+            if (r.clicked) {
+              steps.push('已点「立即投稿」');
+            } else {
+              warnings.push('点「立即投稿」没成功：' + (r.error || '按钮没点到'));
+            }
+          } else {
+            steps.push('停在「立即投稿」前（autoSubmit 未开）');
+          }
         }
       } catch (e) {
         warnings.push('发布失败：' + e.message);
       }
     }
 
-    // 评论：只打开评论管理页，不代发
+    // 评论：打开评论页，可选在一段时间内自动回复
     if (sc.comments) {
       try {
         const bili = await import('./bili.mjs');
         const cfg = bili.loadBiliConfig(root);
         await bili.ensureClient(cfg);
-        const r = await bili.openComments(cfg);
-        steps.push(r && (r.opened || r.ok) ? '已打开评论管理页' : '评论页未打开（锚点可能没配）');
+        const commentsMod = await import('./comments.mjs');
+
+        const watchMinutes = Number(sc.commentsMinutes ?? settings.comments.watchMinutes ?? 0);
+        if (watchMinutes > 0) {
+          const w = await commentsMod.watch(root, {
+            minutes: watchMinutes,
+            intervalMinutes: Number(sc.commentsInterval ?? settings.comments.intervalMinutes ?? 5),
+            send: settings.publish.autoSubmit === true || settings.comments.autoReply === true,
+            maxPerRun: Number(settings.comments.maxPerRun ?? 3),
+            rules: settings.comments.rules,
+            fallback: settings.comments.fallback,
+          });
+          steps.push(`评论挂机 ${w.minutes} 分钟：${w.rounds} 轮，回复 ${w.sent} 条`);
+        } else {
+          const r = await bili.openComments(cfg);
+          steps.push(r && (r.opened || r.ok) ? '已打开评论管理页' : '评论页未打开（锚点可能没配）');
+        }
       } catch (e) {
         warnings.push('评论页失败：' + e.message);
       }

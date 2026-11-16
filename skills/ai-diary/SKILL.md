@@ -18,7 +18,7 @@ whenToUse: 用户要做 AI 角色日记/竖屏短剧、批量出片、给片子�
 6. `ai_diary_assets` —— 素材自检：缺哪些立绘/背景、给补图提示词
 7. `ai_diary_pick` —— 自动选素材：按情绪挑立绘、按模板挑底板与背景，并给封面候选
 8. `ai_diary_post` —— 真投稿编排：唤起客户端 → 创作中心 → 点上传 → 原生文件框粘路径 → 等上传完成 → 填封面/标题/声明/分区/标签/简介 → 停在「立即投稿」前给你截图
-9. `ai_diary_comments` —— 打开「互动管理 → 评论管理」并截图，可带 `reply` 填回复框（`send` 默认 false，不替你发）
+9. `ai_diary_comments` —— 评论管理 + 自动回复：`action=calibrate` 打开「互动管理 → 评论管理」并回传截图与 OCR；`action=scan` 列评论；`action=auto` 按规则回复（`send` 默认 false 只出计划，`send:true` 才发）；`action=watch` 挂一段时间反复扫。每条只回一次（文本指纹去重），单轮默认最多 3 条、间隔 ≥8 秒
 10. `pc_see` / `pc_act` —— 通用电脑操控：文本优先观察窗口（`windows`/`tree`/`find`/`text`/`shot`），动作串一次多步（`focus`/`click`/`move`/`scroll`/`key`/`paste`/`wait` 等）
 11. `ai_diary_publish` —— 轻量发布辅助：文案进剪贴板 + 带视频拉起客户端（默认 dry_run，不点投稿）
 12. `ai_diary_local` —— 本机 ComfyUI 出图：探活 / 列底模 / 按提示词生成，不耗生成额度
@@ -176,7 +176,7 @@ node bin/ai-diary.mjs plate --from out/h3-xxx.mp4 --name audit --seconds 8
 - 客户端 UI 改版时改 `config/bili.json` 里的比例锚点（`railUploadIcon`、`uploadVideoButton`、`titleField`、`tagsInput`、`coverRecommended1`、`submitButton` 等），不用动代码；锚点是相对截图的 0–1 比例，程序按截图缩放换算出真实屏幕坐标。
 - 底线：`dry_run` / `confirm:false` 时绝不替你点「立即投稿」「发布」；投稿是对外不可逆动作。
 - 备用：`ai_diary_publish` 只做「文案进剪贴板 + 带视频拉起客户端」；`mode:"browser"` 的 Chrome CDP 路径保留但默认不用（你明确要求用客户端）。
-- 评论：`ai_diary_comments` 只负责打开评论管理并给你截图 / 填好回复框，`send:false` 时不点发送。
+- 评论：`ai_diary_comments` 走本机 OCR 认界面文字来定位，默认只扫描出计划；`send:true` 才真发，且每条只回一次。点「回复」前会先把那一行放大认字，认不到就跳过；遇到「删除提醒」弹窗立刻取消并终止。真机上「点开回复框 → 粘贴 → 点发表回复」最后一步尚未跑通，会在填入前停下提示。
 
 ## 成本
 

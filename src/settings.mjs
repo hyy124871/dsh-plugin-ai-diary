@@ -26,7 +26,15 @@ export const DEFAULTS = {
   keys: { mimo: '', dashscope: '', minimax: '', github: '' },
   tts: { provider: 'xiaomi', voice: '' },
   comfy: { base: 'http://127.0.0.1:8188' },
-  publish: { mode: 'client', dryRun: true, autoFill: false, statement: '自制' },
+  publish: { mode: 'client', dryRun: true, autoFill: false, autoSubmit: false, statement: '自制' },
+  comments: {
+    rules: [],
+    fallback: '',
+    maxPerRun: 3,
+    intervalMinutes: 5,
+    replied: [],
+    watch: null,
+  },
   schedule: {
     enabled: false,
     dailyAt: '20:30',
