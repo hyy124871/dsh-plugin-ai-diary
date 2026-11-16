@@ -1,0 +1,82 @@
+{
+  "clips": {
+    "deepseek-loop": {
+      "character": "deepseek",
+      "key": "deepseek-loop",
+      "file": "assets/characters/motion/deepseek-loop.mp4",
+      "bytes": 484653,
+      "seconds": 5.06,
+      "width": 720,
+      "height": 720,
+      "fps": 24,
+      "source": "豆包 (2).mp4",
+      "note": "",
+      "importedAt": "2026-11-16T03:57:46.710Z"
+    },
+    "gpt-loop": {
+      "character": "gpt",
+      "key": "gpt-loop",
+      "file": "assets/characters/motion/gpt-loop.mp4",
+      "bytes": 996906,
+      "seconds": 5.06,
+      "width": 720,
+      "height": 720,
+      "fps": 24,
+      "source": "豆包 (3).mp4",
+      "note": "",
+      "importedAt": "2026-11-16T03:57:47.048Z"
+    },
+    "gemini-loop": {
+      "character": "gemini",
+      "key": "gemini-loop",
+      "file": "assets/characters/motion/gemini-loop.mp4",
+      "bytes": 756664,
+      "seconds": 5.06,
+      "width": 720,
+      "height": 720,
+      "fps": 24,
+      "source": "豆包 (4).mp4",
+      "note": "",
+      "importedAt": "2026-11-16T03:57:47.373Z"
+    },
+    "claude-loop": {
+      "character": "claude",
+      "key": "claude-loop",
+      "file": "assets/characters/motion/claude-loop.mp4",
+      "bytes": 462178,
+      "seconds": 5.06,
+      "width": 720,
+      "height": 720,
+      "fps": 24,
+      "source": "豆包 (5).mp4",
+      "note": "",
+      "importedAt": "2026-11-16T03:57:47.774Z"
+    },
+    "grok-loop": {
+      "character": "grok",
+      "key": "grok-loop",
+      "file": "assets/characters/motion/grok-loop.mp4",
+      "bytes": 676812,
+      "seconds": 5.06,
+      "width": 720,
+      "height": 720,
+      "fps": 24,
+      "source": "豆包 (6).mp4",
+      "note": "",
+      "importedAt": "2026-11-16T03:57:48.148Z"
+    },
+    "glm-loop": {
+      "character": "glm",
+      "key": "glm-loop",
+      "file": "assets/characters/motion/glm-loop.mp4",
+      "bytes": 491204,
+      "seconds": 5.06,
+      "width": 720,
+      "height": 720,
+      "fps": 24,
+      "source": "豆包 (7).mp4",
+      "note": "",
+      "importedAt": "2026-11-16T03:57:48.486Z"
+    }
+  }
+}

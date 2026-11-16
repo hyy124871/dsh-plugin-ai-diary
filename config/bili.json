@@ -1,0 +1,31 @@
+{
+  "client": {
+    "exe": "C:\\Program Files\\bilibili\\哔哩哔哩.exe",
+    "exeEnv": "DIARY_BILI_CLIENT",
+    "mainWindow": "哔哩哔哩",
+    "creatorWindow": "浏览器窗口",
+    "railUploadIcon": [0.032, 0.757]
+  },
+  "creator": {
+    "uploadVideoButton": [0.653, 0.868],
+    "coverRecommended1": [0.397, 0.357],
+    "addCoverButton": [0.331, 0.868],
+    "titleField": [0.547, 0.479],
+    "statementSelect": [0.391, 0.563],
+    "statementOptionFirst": [0.391, 0.632],
+    "tagsInput": [0.547, 0.745],
+    "descTextarea": [0.6, 0.45],
+    "submitButton": [0.895, 0.83],
+    "descScroll": -3
+  },
+  "waits": {
+    "afterLaunchMs": 15000,
+    "afterCreatorOpenMs": 6000,
+    "afterDialogEnterMs": 4000,
+    "afterFillMs": 800
+  },
+  "upload": {
+    "msPerMb": 9000,
+    "minWaitMs": 20000
+  }
+}

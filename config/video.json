@@ -1,0 +1,9 @@
+{
+  "provider": "minimax",
+  "apiKey": "",
+  "model": "MiniMax-H3",
+  "resolution": "768P",
+  "duration": 8,
+  "pollIntervalMs": 10000,
+  "notes": "MiniMax H3 异步接口：POST https://api.minimax.cn/v2/video_generation → task_id → GET /v2/query/video_generation/{task_id} → task.content.url。图生视频时 ratio 恒为 adaptive（由首帧决定），纯文生视频必须显式给 ratio。本地首帧用 data URI 兜底，公网 URL 更稳。keyEnv=MINIMAX_API_KEY。"
+}

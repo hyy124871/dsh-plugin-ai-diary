@@ -1,0 +1,74 @@
+{
+  "name": "dsh-plugin-ai-diary",
+  "version": "0.4.4",
+  "description": "AI 日记工坊：选题 + 本地渲染引擎（6 套模板 / 6 套动态底板 / 每角色 10 套立绘）+ 三家 TTS 配音 + MiniMax H3 视频底板 + 哔哩哔哩客户端投稿与评论自动化（内置电脑操控引擎），为 9:16 竖屏 AI 角色短剧而生",
+  "type": "module",
+  "main": "src/index.mjs",
+  "exports": {
+    ".": "./src/index.mjs",
+    "./engine": "./src/engine.mjs",
+    "./topics": "./src/topics.mjs",
+    "./script": "./src/script.mjs",
+    "./voice": "./src/voice.mjs",
+    "./hailuo": "./src/hailuo.mjs",
+    "./local": "./src/local.mjs",
+    "./motion": "./src/motion.mjs",
+    "./update": "./src/update.mjs",
+    "./publish": "./src/publish.mjs",
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json"
+  },
+  "bin": {
+    "ai-diary": "bin/ai-diary.mjs"
+  },
+  "files": [
+    "src",
+    "bin",
+    "scripts",
+    "data",
+    "assets",
+    "skills",
+    "config",
+    "cordis.patch.yml",
+    "README.md",
+    "INSTALL.md",
+    "PROMPTS-VIDEO.md",
+    "PROJECT-INTRO.md",
+    "LICENSE",
+    "publish-github.ps1",
+    "test-voice.mjs",
+    "test-providers.mjs"
+  ],
+  "keywords": [
+    "dsh-plugin",
+    "ai",
+    "short-video",
+    "bilibili",
+    "render",
+    "tts",
+    "minimax-h3",
+    "comfyui",
+    "self-update"
+  ],
+  "license": "MIT",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "topics": "node bin/ai-diary.mjs topics --count 3",
+    "plan:all": "node bin/ai-diary.mjs plan --all",
+    "render:demo": "node bin/ai-diary.mjs plan --topic day7-balance && node bin/ai-diary.mjs render --script out/day7-balance.json",
+    "voice:check": "node bin/ai-diary.mjs voice --check",
+    "pack": "npm pack",
+    "test": "node bin/ai-diary.mjs assets && node bin/ai-diary.mjs topics --count 2 && node test-providers.mjs && node test-voice.mjs"
+  },
+  "dependencies": {
+    "@deepseek-ai/dsh-tools": "^0.2.2-rc.3",
+    "@napi-rs/canvas": "^1.1.1"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "provider": "xiaomi",
+  "apiKey": "",
+  "mode": "preset",
+  "voice": null,
+  "perCharacter": true,
+  "languages": { "qwen": "Chinese" },
+  "providers": {
+    "xiaomi": { "endpoint": "https://api.xiaomimimo.com/v1/chat/completions", "model": "mimo-v2.5-tts", "designModel": "mimo-v2.5-tts-voicedesign", "keyEnv": "MIMO_API_KEY" },
+    "qwen": { "endpoint": "https://dashscope.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation", "model": "qwen3-tts-flash", "keyEnv": "DASHSCOPE_API_KEY" },
+    "minimax": { "endpoint": "https://api.minimax.cn/v1/t2a_v2", "model": "speech-2.8-hd", "keyEnv": "MINIMAX_API_KEY" }
+  },
+  "notes": "provider 三选一：xiaomi / qwen / minimax。voice 留 null 时按角色走 src/voice.mjs 的 CHARACTER_VOICES 表（八角色各一色）；换成固定字符串则全员同一音色。apiKey 留空则读环境变量 MIMO_API_KEY / DASHSCOPE_API_KEY / MINIMAX_API_KEY。mode=design 仅小米有效（voicedesign 造声线），千问/MiniMax 会自动回落 preset。"
+}

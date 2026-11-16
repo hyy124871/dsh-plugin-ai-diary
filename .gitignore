@@ -1,0 +1,26 @@
+﻿# 依赖与构建产物
+node_modules/
+dist/
+work/
+out/
+*.tgz
+
+# 本机二进制（约 100MB，不入库；放到 vendor/ffmpeg.exe 或加进 PATH 即可）
+vendor/
+
+# 动态底板帧目录（45MB，可用 plate 命令重新生成）
+assets/plates/
+
+# 运行时缓存与登录态
+.chrome-profile/
+*.log
+pack*.txt
+post*.txt
+chk*.txt
+
+# 根目录零散临时记录（不进库）
+/*.txt
+
+# 系统
+.DS_Store
+Thumbs.db

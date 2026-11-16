@@ -1,0 +1,6 @@
+{
+  "repo": "",
+  "asset": "dsh-plugin-ai-diary-*.tgz",
+  "channel": "latest",
+  "_说明": "repo 填 owner/name（例：someone/dsh-plugin-ai-diary）。公开仓库查新不需要 token；私有仓库设 GITHUB_TOKEN。channel 可填 latest 或具体 tag。"
+}
