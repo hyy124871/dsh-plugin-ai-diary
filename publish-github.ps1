@@ -1,4 +1,4 @@
-﻿# 把 dsh-plugin-ai-diary 发布到 GitHub（建仓 + 推源码 + 建 Release + 上传 tgz）
+# 把 dsh-plugin-ai-diary 发布到 GitHub（建仓 + 推源码 + 建 Release + 上传 tgz）
 #
 # 用法：
 #   $env:GITHUB_TOKEN = "ghp_xxx"      # 需要 repo 权限的 token
@@ -82,8 +82,7 @@ $staged = (Git diff --cached --name-only | Measure-Object -Line).Lines
 if ($staged -gt 0) {
   Git -c user.name="$login" -c user.email="$login@users.noreply.github.com" commit -m "release: v$((Get-Content package.json -Raw | ConvertFrom-Json).version)" | Out-Null
 }
-Git remote remove origin 2>$null | Out-Null
-Git remote add origin "https://x-access-token:$Token@github.com/$slug.git"
+if ((Git remote) -contains "origin") { Git remote set-url origin "https://x-access-token:$Token@github.com/$slug.git" } else { Git remote add origin "https://x-access-token:$Token@github.com/$slug.git" }
 Git push -u origin main --force | Out-Null
 Write-Host "源码已推送"
 
