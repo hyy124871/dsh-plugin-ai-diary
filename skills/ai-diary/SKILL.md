@@ -1,6 +1,6 @@
 ---
 name: ai-diary
-description: 用 ai_diary_* 与 pc_* 十二个工具把「AI 角色日记」竖屏短剧从选题做到 B 站投稿：选题 → 剧本 → 本地渲染出片 → 三家 TTS 配音 → MiniMax H3 生成动态底板 → 自动选素材 → 走哔哩哔哩客户端上传/填表/评论（内置电脑操控引擎，不用浏览器）。
+description: 用 ai_diary_* 与 pc_* 十七个工具把「AI 角色日记」竖屏短剧从选题做到 B 站投稿：选题 → 剧本 → 本地渲染出片 → 三家 TTS 配音 → MiniMax H3 生成动态底板 → 自动选素材 → 走哔哩哔哩客户端上传/填表/评论（内置电脑操控引擎，不用浏览器）。
 whenToUse: 用户要做 AI 角色日记/竖屏短剧、批量出片、给片子配音，或提到 AI 日记工坊、ai_diary_* 工具、MiniMax H3、千问 TTS、发到 B 站时。
 ---
 
@@ -21,6 +21,20 @@ whenToUse: 用户要做 AI 角色日记/竖屏短剧、批量出片、给片子�
 9. `ai_diary_comments` —— 打开「互动管理 → 评论管理」并截图，可带 `reply` 填回复框（`send` 默认 false，不替你发）
 10. `pc_see` / `pc_act` —— 通用电脑操控：文本优先观察窗口（`windows`/`tree`/`find`/`text`/`shot`），动作串一次多步（`focus`/`click`/`move`/`scroll`/`key`/`paste`/`wait` 等）
 11. `ai_diary_publish` —— 轻量发布辅助：文案进剪贴板 + 带视频拉起客户端（默认 dry_run，不点投稿）
+12. `ai_diary_local` —— 本机 ComfyUI 出图：探活 / 列底模 / 按提示词生成，不耗生成额度
+13. `ai_diary_motion` —— 角色动态素材：收短片 / 列清单 / 转 9:16 动态底板
+14. `ai_diary_update` —— 联网查 GitHub Releases、下载、按 profile 安装（不会静默装）
+15. `ai_diary_settings` —— 读写插件设置：API Key、默认配音服务商与音色、ComfyUI 地址、发布策略
+16. `ai_diary_schedule` —— 定时自动出片：`status` / `enable` / `disable` / `set` / `run-now`
+
+设置面板与配置文件：Harness 官方设置面板读插件导出的 `Config`（schemastery）；配置落在 `~/.ai-diary/settings.json`，环境变量（`MIMO_API_KEY` / `DASHSCOPE_API_KEY` / `MINIMAX_API_KEY` / `GITHUB_TOKEN`）优先。定时默认关闭，一天只跑一次，到点自动出片并把文案填进客户端，仍停在「立即投稿」前。
+12. `ai_diary_local` —— 本机 ComfyUI 出图：探活 / 列底模 / 按提示词生成，不耗生成额度
+13. `ai_diary_motion` —— 角色动态素材：收短片 / 列清单 / 转 9:16 动态底板
+14. `ai_diary_update` —— 联网查 GitHub Releases、下载、按 profile 安装（不会静默装）
+15. `ai_diary_settings` —— 读写插件设置：API Key、默认配音服务商与音色、ComfyUI 地址、发布策略
+16. `ai_diary_schedule` —— 定时自动出片：`status` / `enable` / `disable` / `set` / `run-now`
+
+设置面板与配置文件：Harness 官方设置面板读插件导出的 `Config`（schemastery）；配置落在 `~/.ai-diary/settings.json`，环境变量（`MIMO_API_KEY` / `DASHSCOPE_API_KEY` / `MINIMAX_API_KEY` / `GITHUB_TOKEN`）优先。定时默认关闭，一天只跑一次，到点自动出片并把文案填进客户端，仍停在「立即投稿」前。
 
 ## 标准流程
 

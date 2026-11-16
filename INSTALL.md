@@ -110,6 +110,10 @@ node bin/ai-diary.mjs render --preview 7 --script out\day23-audit.json --out out
 | `ai_diary_post` | 客户端真投稿：上传 → 等「上传完成」→ 填封面/标题/声明/分区/标签/简介 → 停在「立即投稿」前 |
 | `ai_diary_comments` | 打开「互动管理 → 评论管理」，可带 `reply` 填回复框（`send:false` 不发） |
 | `ai_diary_update` | GitHub Releases 联网查新 / 下载 / 安装 |
+| `ai_diary_settings` | 插件设置：API Key、默认配音、ComfyUI 地址、发布策略（key 打码显示） |
+| `ai_diary_schedule` | 定时自动出片：status / enable / disable / set / run-now（默认关闭） |
+| `ai_diary_settings` | 插件设置：API Key、默认配音、ComfyUI 地址、发布策略（key 打码显示） |
+| `ai_diary_schedule` | 定时自动出片：status / enable / disable / set / run-now（默认关闭） |
 | `ai_diary_local` | 本机 ComfyUI 出图（探活 / 底模 / 生成） |
 | `ai_diary_motion` | 角色短片归档与 video→plate |
 | `pc_see` | 观察窗口：`windows` / `tree` / `find` / `text` / `shot`（文本优先，能不出图就不出图） |

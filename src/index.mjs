@@ -33,6 +33,49 @@ try {
 
 const SKILL_FILE = new URL('../skills/ai-diary/SKILL.md', import.meta.url);
 
+// 官方设置面板：Harness 用 cordis 的插件 schema 生成配置表单。
+// schemastery 只在实际运行时才有；脱离 dsh 跑单测时拿不到就退化为「无 schema」，
+// 不影响任何工具注册，也绝不让插件加载失败。
+let Schema = null;
+try {
+  const m = await import('@deepseek-ai/schemastery');
+  Schema = m.default || m;
+} catch {
+  Schema = null;
+}
+
+export const Config = Schema
+  ? Schema.object({
+    keys: Schema.object({
+      mimo: Schema.string().description('小米 MiMo TTS 的 key（对应 MIMO_API_KEY）'),
+      dashscope: Schema.string().description('千问 Qwen-TTS 的 key（对应 DASHSCOPE_API_KEY）'),
+      minimax: Schema.string().description('MiniMax TTS / H3 视频的 key（对应 MINIMAX_API_KEY）'),
+      github: Schema.string().description('GitHub token，仅私有仓库查新/发布用（对应 GITHUB_TOKEN）'),
+    }).description('API Key（留空则继续用环境变量）'),
+    tts: Schema.object({
+      provider: Schema.string().description('默认配音服务商：xiaomi / qwen / minimax'),
+      voice: Schema.string().description('默认音色名，留空用服务商默认音色'),
+    }).description('配音默认项'),
+    comfy: Schema.object({
+      base: Schema.string().description('本机 ComfyUI 地址，默认 http://127.0.0.1:8188'),
+    }).description('本地模型'),
+    publish: Schema.object({
+      dryRun: Schema.boolean().description('预演：只准备文案与客户端，不真的投稿'),
+      autoFill: Schema.boolean().description('把视频与文案填进投稿页，但仍不代点「立即投稿」'),
+      statement: Schema.string().description('创作声明，默认「自制」'),
+    }).description('发布策略'),
+    schedule: Schema.object({
+      enabled: Schema.boolean().description('打开定时自动出片'),
+      dailyAt: Schema.string().description('每天几点跑，24 小时制 HH:MM，例如 20:30'),
+      make: Schema.boolean().description('自动出片'),
+      voice: Schema.boolean().description('自动配音（对应服务商 key 就绪才生效）'),
+      publish: Schema.boolean().description('自动交给客户端投稿'),
+      comments: Schema.boolean().description('顺带打开评论管理页'),
+      look: Schema.string().description('指定立绘档位，如 v13；留空用剧本默认'),
+    }).description('定时任务'),
+  })
+  : undefined;
+
 /** 统一输出：summary 给人看，details 给模型看 */
 function out(summary, details = {}) {
   return { summary, details: JSON.stringify(details) };
@@ -698,6 +741,98 @@ function updateTool() {
   });
 }
 
+function settingsTool() {
+  return defineTool({
+    name: 'ai_diary_settings',
+    description:
+      '读写 AI 日记工坊的插件设置（和 Harness 官方设置面板里的同一份配置）。get=看当前配置（key 会打码，只报告是否就绪以及来自环境变量还是文件）；set=改配置，例如 {"keys":{"mimo":"…"},"tts":{"provider":"qwen"},"publish":{"dryRun":true}}；reset=清空回默认。设置文件默认在 ~/.ai-diary/settings.json，环境变量优先（MIMO_API_KEY / DASHSCOPE_API_KEY / MINIMAX_API_KEY / GITHUB_TOKEN）。',
+    parameters: {
+      action: { type: 'string', enum: ['get', 'set', 'reset'], description: 'get=读，set=写，reset=恢复默认；默认 get' },
+      patch: { type: 'json', description: 'action=set 时要合并进去的片段（会和现有配置深合并，不用给全量）' },
+    },
+    output: outputDef(),
+    isConcurrencySafe: () => true,
+    async execute(args) {
+      const S = await import('./settings.mjs');
+      const action = String(args.action || 'get');
+      if (action === 'get') {
+        const view = S.publicView(S.loadSettings(ROOT));
+        const ready = Object.entries(view.keys).filter(([, v]) => v.ready).map(([k]) => k);
+        return out(
+          `设置 ${view.file}｜已就绪的 key：${ready.length ? ready.join(' / ') : '无'}｜定时：${view.schedule.enabled ? '开' : '关'} ${view.schedule.dailyAt}`,
+          view,
+        );
+      }
+      if (action === 'reset') {
+        const next = S.saveSettings(ROOT, S.DEFAULTS);
+        return out('已恢复默认设置（key 已清空）', S.publicView({ ...next, __file: next.__file }));
+      }
+      const patch = typeof args.patch === 'string' ? JSON.parse(args.patch) : args.patch;
+      if (!patch || typeof patch !== 'object') throw new Error('action=set 需要 patch 对象');
+      const next = S.saveSettings(ROOT, patch);
+      const applied = S.applyEnv(next);
+      const view = S.publicView({ ...next, __file: next.__file });
+      return out(`已保存到 ${view.file}${applied.length ? `，并注入环境变量 ${applied.join(' / ')}` : ''}`, view);
+    },
+  });
+}
+
+function scheduleTool() {
+  return defineTool({
+    name: 'ai_diary_schedule',
+    description:
+      '定时自动出片：status=看状态与最近记录；enable=打开（需给 dailyAt，如 20:30）；disable=关掉；set=只改参数不改变启停；run-now=立刻按当前配置跑一遍（不等时间）。触发后自动选题→编剧本→本地渲染出片→（有 key 才）配音→把成片交给哔哩哔哩客户端并填好文案，仍停在「立即投稿」前不代点；comments=true 顺带打开评论管理页。默认关闭，一天只跑一次。',
+    parameters: {
+      action: { type: 'string', enum: ['status', 'enable', 'disable', 'set', 'run-now'], description: '默认 status' },
+      daily_at: { type: 'string', description: '每天执行时间，24 小时制 HH:MM，如 20:30' },
+      make: { type: 'boolean', description: '是否自动出片，默认 true' },
+      voice: { type: 'boolean', description: '是否自动配音，默认 true（缺 key 时自动跳过）' },
+      publish: { type: 'boolean', description: '是否自动交给客户端投稿，默认 true' },
+      comments: { type: 'boolean', description: '是否顺带打开评论管理页，默认 false' },
+      look: { type: 'string', description: '指定立绘档位，如 v13' },
+    },
+    output: outputDef(),
+    isConcurrencySafe: () => false,
+    async execute(args) {
+      const S = await import('./settings.mjs');
+      const SCH = await import('./scheduler.mjs');
+      const action = String(args.action || 'status');
+      const patch = {};
+      if (args.daily_at) patch.dailyAt = String(args.daily_at).trim();
+      for (const k of ['make', 'voice', 'publish', 'comments']) if (typeof args[k] === 'boolean') patch[k] = args[k];
+      if (args.look) patch.look = String(args.look);
+      if (Object.keys(patch).length) {
+        if (patch.dailyAt || patch.dailyAt === '') {
+          const re = /^\d{1,2}:\d{2}$/;
+          if (patch.dailyAt && !re.test(patch.dailyAt)) throw new Error('daily_at 要 24 小时制 HH:MM，例如 20:30');
+        }
+        S.saveSettings(ROOT, { schedule: patch });
+      }
+      if (action === 'enable') {
+        const cur = S.loadSettings(ROOT);
+        if (!cur.schedule.dailyAt) throw new Error('打开定时前先给 daily_at（HH:MM）');
+        S.saveSettings(ROOT, { schedule: { enabled: true } });
+        const st = SCH.status(ROOT);
+        return out(`定时已打开：每天 ${st.dailyAt} 自动出片${st.publish.dryRun ? '（投稿为预演）' : ''}`, st);
+      }
+      if (action === 'disable') {
+        S.saveSettings(ROOT, { schedule: { enabled: false } });
+        return out('定时已关闭，不会再自动跑', SCH.status(ROOT));
+      }
+      if (action === 'run-now') {
+        S.applyEnv(S.loadSettings(ROOT));
+        const r = await SCH.runOnce(ROOT, { reason: 'manual' });
+        if (!r.ok && r.skipped) return out('已经有一次在跑，等它结束', r);
+        return out(
+          r.ok ? `跑完了：${r.steps.length} 步${r.warnings.length ? `，${r.warnings.length} 条告警` : ''}` : `失败：${r.error}`,
+          r,
+        );
+      }
+      return out(`定时${SCH.status(ROOT).enabled ? '开着' : '关着'}`, SCH.status(ROOT));
+    },
+  });
+}
+
 function registerSkill(ctx) {
   const skills = typeof ctx.get === 'function' ? ctx.get('skills') : undefined;
   if (!skills || typeof skills.register !== 'function') return;
@@ -721,14 +856,14 @@ function registerSkill(ctx) {
   );
 }
 
-export function apply(ctx) {
+export function apply(ctx, config = {}) {
   // 插件自身绝不能把宿主拖死：任何一步失败都只降级，不向外抛。
   try {
     registerSkill(ctx);
   } catch (e) {
     console.warn('[ai-diary] 技能注册失败：' + e.message);
   }
-  const tools = [topicsTool(), planTool(), renderTool(), voiceTool(), assetsTool(), hailuoTool(), publishTool(), pickTool(), postTool(), commentsTool(), localTool(), motionTool(), updateTool()];
+  const tools = [topicsTool(), planTool(), renderTool(), voiceTool(), assetsTool(), hailuoTool(), publishTool(), pickTool(), postTool(), commentsTool(), localTool(), motionTool(), updateTool(), settingsTool(), scheduleTool()];
   // 桌面操控（并入自 dsh-pc-control）：pc_see / pc_act
   try {
     tools.push(...createPcTools({ defineTool, out, outputDef, cfg: { failsafe: true, maxActions: 24, timeoutMs: 30000, shotTtlMinutes: 30 } }));
@@ -746,6 +881,44 @@ export function apply(ctx) {
     void pcWarmup({ timeoutMs: 30000, maxActions: 24, failsafe: true });
   } catch {
     /* 预热失败不影响注册 */
+  }
+  // 设置：官方设置面板传进来的 config 只覆盖本次运行，不写文件（避免把面板默认值当成用户选择落盘）。
+  try {
+    ctx.effect(() => {
+      void (async () => {
+        const S = await import('./settings.mjs');
+        const base = S.loadSettings(ROOT);
+        const merged = config && Object.keys(config).length ? S.merge(base, config) : base;
+        S.applyEnv(merged);
+      })();
+    }, 'ai-diary: settings');
+  } catch (e) {
+    console.warn('[ai-diary] 设置载入失败：' + e.message);
+  }
+  // 定时任务：默认关闭，enabled=true 才会跑；卸载时随 ctx 一起停。
+  try {
+    ctx.effect(() => {
+      let handle = null;
+      void (async () => {
+        try {
+          const SCH = await import('./scheduler.mjs');
+          handle = SCH.start(ROOT, {
+            onLog: (m) => console.log('[ai-diary] 定时：' + m),
+          });
+        } catch (e) {
+          console.warn('[ai-diary] 定时器启动失败：' + e.message);
+        }
+      })();
+      return () => {
+        try {
+          handle?.stop?.();
+        } catch {
+          /* 停不掉就算了，进程退出会带走 */
+        }
+      };
+    }, 'ai-diary: scheduler');
+  } catch (e) {
+    console.warn('[ai-diary] 定时器挂载失败：' + e.message);
   }
   try {
     ctx.effect(() => {

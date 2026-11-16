@@ -1,13 +1,13 @@
 # dsh-plugin-ai-diary
 
-给 **DeepSeek Harness（dsh）** 用的一个插件：把「AI 角色日记短剧」从选题到发布整条链子做成 15 个工具（13 个 `ai_diary_*` + 2 个 `pc_*`），画面由本地渲染引擎合成，配音与动态底板才可选调用外部接口；投稿、回评论、选素材都能在哔哩哔哩客户端里真机自动完成，不开浏览器。
+给 **DeepSeek Harness（dsh）** 用的一个插件：把「AI 角色日记短剧」从选题到发布整条链子做成 17 个工具（15 个 `ai_diary_*` + 2 个 `pc_*`），画面由本地渲染引擎合成，配音与动态底板才可选调用外部接口；投稿、回评论、选素材都能在哔哩哔哩客户端里真机自动完成，不开浏览器。
 
 灵感来自 `dsh-ai-diary` 那种「静态立绘 + 代码动效」的做法，也接着 B 站上那条《【Day7】余额只剩一块钱，我问他是不是不要我了》的调子——但它不靠生成模型烧额度，靠模板 + 确定性绘制；真要动态底板时才走 Seedance / MiniMax H3。
 
 ## 安装（30 秒）
 
 ```bash
-dsh plugin --profile <你的profile> add "<插件包路径>\dist\dsh-plugin-ai-diary-0.4.1.tgz"
+dsh plugin --profile <你的profile> add "<插件包路径>\dist\dsh-plugin-ai-diary-0.5.0.tgz"
 ```
 
 桌面版（profile 被 Electron 独占）用一键脚本：
@@ -18,17 +18,27 @@ powershell -ExecutionPolicy Bypass -File .\install.ps1
 
 装完 `dsh --profile <profile> --dump-config` 里能看到 `ai-diary` 就成功了。详见 `INSTALL.md`。
 
+## 0.5.0 更新了什么
+
+- **官方设置里的插件配置**：插件导出一份 `Config`（cordis / schemastery）声明 —— 四个 API Key、默认配音服务商与音色、ComfyUI 地址、发布策略、定时任务开关。Harness 的插件设置面板按这份 schema 生成表单项；同一份配置也能用 `ai_diary_settings` 工具读写（`get` / `set` / `reset`）。
+- **设置落盘**：`~/.ai-diary/settings.json`（重装插件不丢；`AIDIARY_SETTINGS=<绝对路径>` 可换位置）。**环境变量优先**：`MIMO_API_KEY` / `DASHSCOPE_API_KEY` / `MINIMAX_API_KEY` / `GITHUB_TOKEN` 照旧可用，设了就压过文件里的值。
+- **定时自动出片 `ai_diary_schedule`**：到点自己选题 → 编剧本 → 本地渲染出片 →（对应服务商 key 就绪才）配音 → 把成片交给哔哩哔哩客户端并填好标题/标签/声明，**停在「立即投稿」前不代点**；`comments:true` 顺带打开评论管理页。
+  - 默认关闭，必须显式 `enable` 才动；一天只跑一次；只在设定那一分钟内触发，睡过头不半夜补跑；插件卸载定时器跟着停。
+  - 成片落在 `out/scheduled/<剧本id>-<时间戳>.mp4`，不覆盖已有文件；执行结果记进设置文件的 `schedule.runs`（保留最近 7 条）。
+- **命令行同步**：`node bin/ai-diary.mjs settings` 看配置，`settings --action set --mimo <key> --provider qwen` 写 key；`node bin/ai-diary.mjs schedule --action status|enable|disable|run-now --at 20:30`。
+- **工具 15 → 17**。
+
 ## 0.4.4 更新了什么
 
-- **联网自更新 i_diary_update**：查 GitHub Releases（ction:check，只读）→ 下载 tgz（ction:download，校验 sha256）→ 按 profile 安装（ction:apply）。更新源写在 config/update.json 的 epo；公开仓库不需要 token，私有仓库设 GITHUB_TOKEN。**不会静默安装**：不传 profile 就只下载并给出命令。
-- **新增 PROJECT-INTRO.md 介绍文档**：定位、能力矩阵、15 个工具的职责、快速开始、素材体系、架构、边界与 Roadmap。
-- **新增 publish-github.ps1**：一条命令完成建仓 + 推源码 + 建 Release + 上传 tgz + 回写更新源；.gitignore 把 endor/、dist/、work/、out/、ssets/plates/ 排除在外（223MB 的包只走 Release，不进 git）。
+- **联网自更新 `ai_diary_update`**：查 GitHub Releases（`action:check`，只读）→ 下载 tgz（`action:download`，校验 sha256）→ 按 profile 安装（`action:apply`）。更新源写在 `config/update.json` 的 `repo`；公开仓库不需要 token，私有仓库设 `GITHUB_TOKEN`。**不会静默安装**：不传 profile 就只下载并给出命令。
+- **新增 `PROJECT-INTRO.md` 介绍文档**：定位、能力矩阵、工具职责、快速开始、素材体系、架构、边界与 Roadmap。
+- **新增 `publish-github.ps1`**：一条命令完成建仓 + 推源码 + 建 Release + 上传 tgz + 回写更新源；`.gitignore` 把 `vendor/`、`dist/`、`work/`、`out/`、`assets/plates/` 排除在外（223MB 的包只走 Release，不进 git）。
 - **工具 14 → 15**。
 
 ## 0.4.3 更新了什么
 
-- **新增本地模型接入 i_diary_local**：直连本机 ComfyUI（秋叶整合包也行），用 D 盘那 6 个 .safetensors 出图 —— 动漫 ReVAnimated、dark sushi、AWPainting、majicMIX 写实、室内风格、LandscapeBING。ction:probe 探活、ction:models 列服务端底模与本机文件、ction:gen 按提示词出图落盘。纯本地跑，不联网、不消耗生成额度；ComfyUI 没起来只返回启动方法，不重试。
-- **新增角色短片 i_diary_motion**：把 Seedance 生成的 5 秒角色短片收进插件（ction:import）、列清单（ction:list）、转 9:16 动态底板（ction:plate）。已收 6 条：deepseek / gpt / gemini / claude / grok / glm，各 5.06s / 720×720；qwen、kimi 还缺。
+- **新增本地模型接入 `ai_diary_local`**：直连本机 ComfyUI（秋叶整合包也行），用 D 盘那 6 个 `.safetensors` 出图 —— 动漫 ReVAnimated、dark sushi、AWPainting、majicMIX 写实、室内风格、LandscapeBING。`action:probe` 探活、`action:models` 列服务端底模与本机文件、`action:gen` 按提示词出图落盘。纯本地跑，不联网、不消耗生成额度；ComfyUI 没起来只返回启动方法，不重试。
+- **新增角色短片 `ai_diary_motion`**：把 Seedance 生成的 5 秒角色短片收进插件（`action:import`）、列清单（`action:list`）、转 9:16 动态底板（`action:plate`）。已收 6 条：deepseek / gpt / gemini / claude / grok / glm，各 5.06s / 720×720；qwen、kimi 还缺。
 - **工具 12 → 14**；安装后校验脚本断言 14 工具 / 88 立绘 / 6 条短片。
 
 ## 0.4.2 更新了什么
@@ -103,6 +113,8 @@ powershell -ExecutionPolicy Bypass -File .\install.ps1
 | `ai_diary_local` | 驱动本机 ComfyUI 出图：探活 / 列底模 / 六种风格 / 按提示词生成（D 盘 6 个 .safetensors 都能用） | 否（本地算力） |
 | `ai_diary_motion` | 角色动态素材：收短片 / 列清单 / 转 9:16 动态底板（video→plate） | 否 |
 | `ai_diary_update` | 联网查新 / 下载 / 按 profile 安装（GitHub Releases） | 否 |
+| `ai_diary_settings` | 读写插件设置：API Key、默认配音、ComfyUI 地址、发布策略（key 打码） | 否 |
+| `ai_diary_schedule` | 定时自动出片：status / enable / disable / set / run-now | 否 |
 | `pc_see` | 电脑观察：`windows` / `tree` / `find` / `text` / `shot`，文本优先省 token | 否 |
 | `pc_act` | 电脑动作串：`focus` / `click` / `move` / `scroll` / `key` / `paste` / `wait`，一次多步 | 否 |
 

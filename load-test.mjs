@@ -24,6 +24,8 @@ const expected = [
   'ai_diary_local',
   'ai_diary_motion',
   'ai_diary_update',
+  'ai_diary_settings',
+  'ai_diary_schedule',
   'pc_see',
   'pc_act',
 ];

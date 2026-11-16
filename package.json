@@ -1,6 +1,6 @@
 {
   "name": "dsh-plugin-ai-diary",
-  "version": "0.4.4",
+  "version": "0.5.0",
   "description": "AI 日记工坊：选题 + 本地渲染引擎（6 套模板 / 6 套动态底板 / 每角色 10 套立绘）+ 三家 TTS 配音 + MiniMax H3 视频底板 + 哔哩哔哩客户端投稿与评论自动化（内置电脑操控引擎），为 9:16 竖屏 AI 角色短剧而生",
   "type": "module",
   "main": "src/index.mjs",
@@ -16,7 +16,9 @@
     "./update": "./src/update.mjs",
     "./publish": "./src/publish.mjs",
     "./cordis.patch.yml": "./cordis.patch.yml",
-    "./package.json": "./package.json"
+    "./package.json": "./package.json",
+    "./settings": "./src/settings.mjs",
+    "./scheduler": "./src/scheduler.mjs"
   },
   "bin": {
     "ai-diary": "bin/ai-diary.mjs"
@@ -48,7 +50,9 @@
     "tts",
     "minimax-h3",
     "comfyui",
-    "self-update"
+    "self-update",
+    "settings",
+    "scheduler"
   ],
   "license": "MIT",
   "engines": {
@@ -60,7 +64,9 @@
     "render:demo": "node bin/ai-diary.mjs plan --topic day7-balance && node bin/ai-diary.mjs render --script out/day7-balance.json",
     "voice:check": "node bin/ai-diary.mjs voice --check",
     "pack": "npm pack",
-    "test": "node bin/ai-diary.mjs assets && node bin/ai-diary.mjs topics --count 2 && node test-providers.mjs && node test-voice.mjs"
+    "test": "node bin/ai-diary.mjs assets && node bin/ai-diary.mjs topics --count 2 && node test-providers.mjs && node test-voice.mjs",
+    "settings": "node bin/ai-diary.mjs settings",
+    "schedule": "node bin/ai-diary.mjs schedule"
   },
   "dependencies": {
     "@deepseek-ai/dsh-tools": "^0.2.2-rc.3",

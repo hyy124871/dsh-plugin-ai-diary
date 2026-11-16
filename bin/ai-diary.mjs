@@ -304,6 +304,57 @@ async function main() {
     return;
   }
 
+  if (cmd === 'settings') {
+    const S = await import('../src/settings.mjs');
+    const action = String(flags.action || 'get');
+    if (action === 'reset') {
+      const next = S.saveSettings(path.resolve('.'), S.DEFAULTS);
+      console.log('已恢复默认设置 → ' + next.__file);
+      return;
+    }
+    if (action === 'set') {
+      // settings set --mimo <key> --provider qwen --voice 冰糖
+      const patch = {};
+      if (flags.mimo || flags.qwen || flags.minimax || flags.github) {
+        patch.keys = {
+          ...(flags.mimo ? { mimo: String(flags.mimo) } : {}),
+          ...(flags.qwen ? { dashscope: String(flags.qwen) } : {}),
+          ...(flags.minimax ? { minimax: String(flags.minimax) } : {}),
+          ...(flags.github ? { github: String(flags.github) } : {}),
+        };
+      }
+      if (flags.provider || flags.voice) patch.tts = { ...(flags.provider ? { provider: String(flags.provider) } : {}), ...(flags.voice ? { voice: String(flags.voice) } : {}) };
+      if (flags['dry-run']) patch.publish = { dryRun: String(flags['dry-run']) !== 'false' };
+      const next = S.saveSettings(path.resolve('.'), patch);
+      console.log('已保存 → ' + next.__file);
+    }
+    const view = S.publicView({ ...S.loadSettings(path.resolve('.')), __file: S.loadSettings(path.resolve('.')).__file });
+    console.log(JSON.stringify(view, null, 2));
+    return;
+  }
+
+  if (cmd === 'schedule') {
+    const S = await import('../src/settings.mjs');
+    const SCH = await import('../src/scheduler.mjs');
+    const action = String(flags.action || 'status');
+    const patch = {};
+    if (flags.at) patch.dailyAt = String(flags.at);
+    for (const k of ['make', 'voice', 'publish', 'comments']) if (flags[k] !== undefined) patch[k] = String(flags[k]) !== 'false';
+    if (Object.keys(patch).length) S.saveSettings(path.resolve('.'), { schedule: patch });
+    if (action === 'enable') S.saveSettings(path.resolve('.'), { schedule: { enabled: true } });
+    if (action === 'disable') S.saveSettings(path.resolve('.'), { schedule: { enabled: false } });
+    if (action === 'run-now') {
+      S.applyEnv(S.loadSettings(path.resolve('.')));
+      const r = await SCH.runOnce(path.resolve('.'), { reason: 'cli', onLog: (m) => console.log('  ' + m) });
+      console.log(r.ok ? `完成：${r.steps.length} 步` : `失败：${r.error}`);
+      if (r.video) console.log('成片 ' + r.video);
+      for (const w of r.warnings || []) console.log('  [warn] ' + w);
+      return;
+    }
+    console.log(JSON.stringify(SCH.status(path.resolve('.')), null, 2));
+    return;
+  }
+
   if (cmd === 'update') {
     const U = await import('../src/update.mjs');
     const action = String(flags.action || 'check');
