@@ -57,27 +57,34 @@ if (-not $exists) {
 }
 
 # 2) 推源码
-$git = (Get-Command git -ErrorAction SilentlyContinue)
-if (-not $git) {
+$gitExe = (Get-Command git -ErrorAction SilentlyContinue).Source
+if (-not $gitExe) {
+  # 没装独立 git 时，复用 GitHub Desktop 自带的 git
+  $desk = Get-ChildItem -LiteralPath "$env:LOCALAPPDATA\GitHubDesktop" -Recurse -Filter "git.exe" -ErrorAction SilentlyContinue |
+    Where-Object { $_.FullName -match '\\cmd\\git\.exe$' } | Select-Object -First 1
+  if ($desk) { $gitExe = $desk.FullName; Write-Host "用 GitHub Desktop 自带的 git：$gitExe" }
+}
+if (-not $gitExe) {
   Write-Host ""
   Write-Host "没有检测到 git。先装它（只装 git，不动别的）：" -ForegroundColor Yellow
   Write-Host "  winget install --id Git.Git -e --source winget"
   Write-Host "装完重跑本脚本即可。tgz 会成为 Release 资源，不需要 git 也能上传。"
   exit 2
 }
+function Git { & $gitExe @args }
 
 if (-not (Test-Path -LiteralPath (Join-Path $Root '.git'))) {
-  git init | Out-Null
-  git checkout -b main 2>$null | Out-Null
+  Git init | Out-Null
+  Git checkout -b main 2>$null | Out-Null
 }
-git add -A
-$staged = (git diff --cached --name-only | Measure-Object -Line).Lines
+Git add -A
+$staged = (Git diff --cached --name-only | Measure-Object -Line).Lines
 if ($staged -gt 0) {
-  git -c user.name="$login" -c user.email="$login@users.noreply.github.com" commit -m "release: v$((Get-Content package.json -Raw | ConvertFrom-Json).version)" | Out-Null
+  Git -c user.name="$login" -c user.email="$login@users.noreply.github.com" commit -m "release: v$((Get-Content package.json -Raw | ConvertFrom-Json).version)" | Out-Null
 }
-git remote remove origin 2>$null | Out-Null
-git remote add origin "https://x-access-token:$Token@github.com/$slug.git"
-git push -u origin main --force | Out-Null
+Git remote remove origin 2>$null | Out-Null
+Git remote add origin "https://x-access-token:$Token@github.com/$slug.git"
+Git push -u origin main --force | Out-Null
 Write-Host "源码已推送"
 
 # 3) 打包并建 Release
