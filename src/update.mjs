@@ -264,6 +264,31 @@ export function writeState(patch) {
   }
 }
 
+/**
+ * 面板要展示的查新状态：缓存过期或与本地实际版本对不上时，就别再拿它当「远端最新」。
+ * 典型场景：上次查新时本地还是 0.8.0、远端 0.8.1，之后手动装成了 0.8.2，
+ * 缓存没刷新，面板却还写「本地 0.8.2 · 远端 0.8.1（有新版本）」。
+ */
+export function freshState(root, { maxAgeMs = 6 * 3600 * 1000 } = {}) {
+  const s = readState();
+  if (!s) return null;
+  const local = readLocalVersion(root);
+  const at = Date.parse(s.at || '') || 0;
+  const age = at ? Date.now() - at : Infinity;
+  const mismatched = Boolean(s.current) && s.current !== local;
+  if (mismatched || age > maxAgeMs) {
+    return {
+      ...s,
+      stale: true,
+      current: local,
+      hasUpdate: false,
+      latest: null,
+      staleReason: mismatched ? `缓存里的本地版本是 ${s.current}，实际是 ${local}` : '缓存超过 6 小时',
+    };
+  }
+  return { ...s, stale: false };
+}
+
 /** 扫本机 profile，找出装了本插件的（桌面版默认在 ~/.dsh/profiles/<名字>） */
 export function findProfiles(pluginName = 'dsh-plugin-ai-diary') {
   const base = path.join(os.homedir(), '.dsh', 'profiles');

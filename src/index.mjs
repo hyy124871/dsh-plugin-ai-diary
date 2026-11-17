@@ -1241,7 +1241,7 @@ export function apply(ctx, config = {}) {
                 video: st.video || {},
                 tts: st.tts || {},
                 keys,
-                state: U.readState(),
+                state: U.freshState(ROOT),
                 settingsFile: S.settingsPath(ROOT),
               };
             };
