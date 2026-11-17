@@ -19,17 +19,23 @@ export const SECRETS = {
   mimo: 'MIMO_API_KEY',
   dashscope: 'DASHSCOPE_API_KEY',
   minimax: 'MINIMAX_API_KEY',
+  ark: 'ARK_API_KEY',
   github: 'GITHUB_TOKEN',
   bili: 'BILI_COOKIE',
 };
 
 export const DEFAULTS = {
-  keys: { mimo: '', dashscope: '', minimax: '', github: '', bili: '' },
+  keys: { mimo: '', dashscope: '', minimax: '', ark: '', github: '', bili: '' },
   tts: { provider: 'xiaomi', voice: '' },
   comfy: { base: 'http://127.0.0.1:8188' },
   // 成片规格：逻辑布局固定 720×1280，scale 是超采样倍数 → 1.5 出 1080×1920
   // workers 是并行渲染段数，0 = 自动（核数一半，最多 4 段）
-  render: { scale: 1.5, fps: 24, workers: 0 },
+  // accelerator：cpu=libx264（画质最好）| gpu=硬件编码（NVENC/QSV/AMF，快数倍）| auto=有硬件就用
+  render: { scale: 1.5, fps: 24, workers: 0, accelerator: 'auto' },
+  // 图片模型：Seedream（火山方舟），给角色补立绘 / 封面底图
+  image: { model: 'seedream-4.0', size: '2K' },
+  // H3 默认档位：日常出片用 Highspeed，追求画质手动切 H3 + 2K
+  video: { model: 'MiniMax-H3-Highspeed', resolution: '768P' },
   // 自动更新：启动静默查新；autoInstall=true 查询到就自己装（装完要重启 Harness）
   update: { autoCheck: true, autoInstall: true },
   publish: { mode: 'client', dryRun: true, autoFill: false, autoSubmit: false, statement: '自制' },
@@ -158,6 +164,9 @@ export function publicView(settings) {
     keys,
     tts: settings.tts,
     comfy: settings.comfy,
+    render: settings.render,
+    image: settings.image,
+    video: settings.video,
     publish: settings.publish,
     comments: {
       mode: settings.comments.mode,

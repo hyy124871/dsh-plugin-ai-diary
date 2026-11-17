@@ -39,6 +39,10 @@ export function decideWorkers(script, opts = {}, setting = 0) {
   const want = Number(opts.workers ?? setting ?? 0);
   if (want > 0) return Math.max(1, Math.min(16, Math.floor(want)));
   const cpus = (os.cpus() || []).length || 4;
+  const accel = String(opts.accelerator || 'auto').toLowerCase();
+  // 瓶颈始终在 Skia 绘制（纯 CPU），所以 GPU 模式也要并行画；
+  // 实测 1080p 36s 片：GPU 4 段 34.2s，GPU 2 段 43.0s，CPU 4 段 65.6s。
+  if (accel === 'gpu') return Math.max(1, Math.min(4, Math.floor(cpus / 2) || 2));
   return Math.max(1, Math.min(4, Math.floor(cpus / 2) || 1));
 }
 
@@ -110,6 +114,7 @@ export async function renderEpisodeParallel(script, opts = {}) {
           if (opts.template) args.push('--template', String(opts.template));
           if (opts.look) args.push('--look', String(opts.look));
           if (opts.maxSeconds) args.push('--max-seconds', String(opts.maxSeconds));
+          if (opts.accelerator) args.push('--accelerator', String(opts.accelerator));
           const p = spawn(process.execPath, args, { stdio: ['ignore', 'pipe', 'pipe'], cwd: ROOT });
           const err = [];
           p.stdout.on('data', (d) => {

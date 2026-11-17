@@ -18,6 +18,51 @@ powershell -ExecutionPolicy Bypass -File .\install.ps1
 
 装完 `dsh --profile <profile> --dump-config` 里能看到 `ai-diary` 就成功了。详见 `INSTALL.md`。
 
+## 0.7.8 更新了什么
+
+**设置面板第 4 次不显示的真正根因修掉了。** 前几轮把「官方 settings wire 白名单」当成唯一原因，其实还有一道门：客户端插件必须在 `package.json` 的 `dsh.client` 里声明它要注入的宿主客户端包，`ctx.slots` 来自 `@deepseek-ai/dsh-client-ui-slots`。只写 `platform: "web"` 而不写 `inject`，加载器会连 `apply` 都不调，静默跳过——面板当然永远不出现。对照 `dsh-drawai`（同为 web 客户端插件、工作正常）的声明方式补上：
+
+```json
+"dsh": {
+  "client": {
+    "platform": "web",
+    "inject": ["@deepseek-ai/dsh-client-ui-slots"]
+  }
+}
+```
+
+两个 `inject` 不是一个东西：这里的数组写**包名**，`lib/client.js` 末尾的 `exports.inject = ['slots']` 写**服务名**，一一对应。
+
+**GPU 编码 + CPU/GPU 开关。** 本机双显卡（NVIDIA MX250 2GB + Intel UHD），ffmpeg 侧可用 `h264_nvenc` / `h264_qsv` / `h264_amf`。新增 `render.accelerator`：`cpu` / `gpu` / `auto`（默认 auto，实测到硬件就用硬件）。
+
+首帧探测会自动跑一次空编码确认哪条硬件路径真能用（本机 NVENC 探测失败、QSV 通过），结果缓存。同体积下实测：
+
+| 配置 | 36 秒 1080p 耗时 | 码率 / 体积 |
+|---|---|---|
+| CPU 4 段（libx264 crf17） | 65.6s | 4687 kb/s / 21.1 MB |
+| **GPU 4 段（QSV q15）** | **34.5s（1.9×）** | 4616 kb/s / 20.8 MB |
+
+瓶颈始终在 Skia 逐帧绘制（纯 CPU），所以 GPU 模式下**照样并行绘制**，编码那一步交给显卡。质量档位是按「体积对齐 x264 crf17」调出来的，不是盲目追速度。
+
+```powershell
+node bin/ai-diary.mjs render --script out/day7.json --accelerator gpu   # 显卡编码
+node bin/ai-diary.mjs render --script out/day7.json --accelerator cpu   # 纯 CPU
+```
+
+**H3 五档模型全开。** `ai_diary_hailuo` 的 `model` 从两档扩到五档，价格与分辨率都按官方价目表校验：
+
+| 档位 | 分辨率 | 时长 | 参考图 | 输出价 |
+|---|---|---|---|---|
+| MiniMax-H3 | 768P / 2K | 4–15s | 支持 | ¥0.50 / ¥0.80 每秒 |
+| MiniMax-H3-Highspeed | 480P / 768P | 4–15s | 支持 | ¥0.26 / ¥0.40 |
+| MiniMax-H3-Lite | 480P / 768P | 4–15s | 不支持 | ¥0.16 / ¥0.26 |
+| MiniMax-H3-Max | 480P / 768P | 5–15s | 支持（图文音） | ¥0.33 / ¥0.50 |
+| MiniMax-H3-Regeneration | 2K（768P→2K） | — | 输入需视频 | ¥0.30 每秒 |
+
+`models: true` 可以一次列出全部档位与价格；`H3-Regeneration` 走独立的 `/v2/video_regeneration`，只要 `source_video` 给一段可公网访问的 768P 成片，不需要 prompt。
+
+**Seedream 图片模型接入。** 新增第 18 个工具 `ai_diary_seedream`：火山方舟 Ark 的 `/api/v3/images/generations`，`seedream-4.0`（支持参考图，角色一致性靠它）/ `seedream-3.0`，尺寸 1K/2K/4K 或具体像素，`n` 一次最多 4 张，本地参考图自动转 data URI。产物落 `assets/generated/`，`out` 可以直接覆盖某个立绘档位。需要 `ARK_API_KEY`（设置里 `keys.ark`）。
+
 ## 0.7.7 更新了什么
 
 **设置面板真的会出现了。** 之前「设置」页里怎么都看不见本插件，原因是 Harness 的 settings wire 只服务一份硬编码的命名空间白名单，第三方插件的命名空间不在里面——所以官方面板永远拿不到、也写不了本插件的配置。修法与 `dsh-plugin-memory` 一致：

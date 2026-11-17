@@ -88,6 +88,7 @@ export const Config = Schema
       mimo: Schema.string().description('小米 MiMo TTS 的 key（对应 MIMO_API_KEY）'),
       dashscope: Schema.string().description('千问 Qwen-TTS 的 key（对应 DASHSCOPE_API_KEY）'),
       minimax: Schema.string().description('MiniMax TTS / H3 视频的 key（对应 MINIMAX_API_KEY）'),
+      ark: Schema.string().description('火山方舟 ARK key，Seedream 出图用（对应 ARK_API_KEY）'),
       github: Schema.string().description('GitHub token，仅私有仓库查新/发布用（对应 GITHUB_TOKEN）'),
       bili: Schema.string().description('B站评论接口 Cookie：SESSDATA + bili_jct（建议带 buvid3），对应 BILI_COOKIE'),
     }).description('API Key（留空则继续用环境变量）'),
@@ -101,7 +102,17 @@ export const Config = Schema
     render: Schema.object({
       scale: Schema.number().description('成片超采样倍数：1.5 = 1080×1920（默认），1 = 720p，2 = 1440×2560'),
       fps: Schema.number().description('成片帧率，默认 24'),
-    }).description('成片规格'),
+      workers: Schema.number().description('并行渲染段数，0=自动（CPU 模式按核数一半、最多 4 段；GPU 模式固定单片）'),
+      accelerator: Schema.string().description('编码算力：cpu=纯 CPU（libx264，画质最好）｜gpu=用显卡硬件编码（NVENC/QSV/AMF，快数倍）｜auto=有显卡自动用（默认）'),
+    }).description('成片规格与算力'),
+    image: Schema.object({
+      model: Schema.string().description('Seedream 型号：seedream-4.0（支持参考图）/ seedream-3.0，也可直接填方舟 model id'),
+      size: Schema.string().description('出图尺寸：2K（默认）/ 1K / 4K 或 1024x1536 这类具体像素'),
+    }).description('Seedream 图片模型'),
+    video: Schema.object({
+      model: Schema.string().description('默认 H3 档位：MiniMax-H3 / H3-Highspeed / H3-Lite / H3-Max / H3-Regeneration'),
+      resolution: Schema.string().description('默认分辨率：768P / 2K / 480P（随档位而定）'),
+    }).description('H3 视频默认档位'),
     update: Schema.object({
       autoCheck: Schema.boolean().description('启动时静默查一次新版本，结果写进体检面板（默认开）'),
       autoInstall: Schema.boolean().description('查到新版本就自动下载并安装到本机 profile（默认开；装完要重启 Harness 才生效）'),
@@ -304,6 +315,7 @@ function renderTool() {
       scale: { type: 'number', description: '超采样倍数，默认 1.5（紧凑 720×1280 布局 → 真实输出 1080×1920）；传 1 退回 720p，传 2 出 1440×2560' },
       fps: { type: 'number', description: '覆盖帧率，默认 24' },
       workers: { type: 'number', description: '并行渲染段数：按 CPU 核数把整片切段同时画，再无损拼接；1=单片，0/省略=按设置（默认自动，最多 4 段）' },
+      accelerator: { type: 'string', enum: ['auto', 'cpu', 'gpu'], description: '编码算力：cpu=纯 CPU（libx264，画质最好）；gpu=显卡硬件编码 NVENC/QSV/AMF（快数倍）；auto=有显卡自动用。留空走设置' },
     },
     output: outputDef(),
     isConcurrencySafe: () => false,
@@ -318,6 +330,7 @@ function renderTool() {
       if (args.look && String(args.look) !== 'v1') script.episode.look = String(args.look);
       const outFile = resolvePath(args.out, exec, path.join('out', `${script.id}.mp4`));
       const pngDir = args.png ? resolvePath(null, exec, path.join('out', `${script.id}-frames`)) : null;
+      const accelerator = String(args.accelerator || st.render?.accelerator || 'auto');
       const t0 = Date.now();
       const res = await renderEpisodeParallel(script, {
         out: outFile,
@@ -328,16 +341,19 @@ function renderTool() {
         scale: args.scale ? Number(args.scale) : Number(st.render?.scale) || undefined,
         workers: args.workers ? Number(args.workers) : undefined,
         workerSetting: Number(st.render?.workers) || 0,
+        accelerator,
         maxSeconds: args.preview_seconds ? Number(args.preview_seconds) : undefined,
         template: args.template,
         look: script.episode?.look,
       });
       const cost = ((Date.now() - t0) / 1000).toFixed(1);
+      const { describeAccelerator, findFfmpeg } = await import('./engine.mjs');
+      const accelLabel = describeAccelerator(findFfmpeg(), accelerator);
       let voiceLine = '';
       if (args.voice && !args.png) {
         const { buildVoiceTrack, muxVoice, loadVoiceConfig } = await import('./voice.mjs');
-        const { findFfmpeg } = await import('./engine.mjs');
-        const ffmpeg = findFfmpeg();
+        const { findFfmpeg: ff } = await import('./engine.mjs');
+        const ffmpeg = ff();
         const cfg = { ...loadVoiceConfig(ROOT), ...(args.voice === 'design' ? { mode: 'design' } : { voice: String(args.voice) }), ...(args.provider ? { provider: args.provider } : {}) };
         const track = await buildVoiceTrack(script, { root: ROOT, ffmpeg, cfg });
         const voiced = outFile.replace(/\.mp4$/i, '-voice.mp4');
@@ -348,8 +364,8 @@ function renderTool() {
       return out(
         args.png
           ? `导出 ${res.frames} 帧 PNG（${res.width}×${res.height} @ ${res.fps}fps，${cost}s）`
-          : `渲染完成 ${res.seconds}s / ${res.frames} 帧 → ${rel(res.file)}（${cost}s）${voiceLine}`,
-        { ok: true, ...res, file: res.file ? rel(res.file) : null, frames: args.png ? rel(pngDir) : undefined, spec: summary(script) },
+          : `渲染完成 ${res.seconds}s / ${res.frames} 帧 → ${rel(res.file)}（${cost}s，编码 ${accelLabel}）${voiceLine}`,
+        { ok: true, ...res, accelerator: accelLabel, file: res.file ? rel(res.file) : null, frames: args.png ? rel(pngDir) : undefined, spec: summary(script) },
       );
     },
   });
@@ -423,49 +439,116 @@ function hailuoTool() {
   return defineTool({
     name: 'ai_diary_hailuo',
     description:
-      '用 MiniMax H3 生成动态底板视频（异步三步：POST api.minimax.cn/v2/video_generation 得 task_id → GET /v2/query/video_generation/{task_id} 轮询 → 下载 task.content.url）。支持纯文生视频、首帧/尾帧图生视频、多模态参考；H3 输出 768P/2K、4–15 秒整数，图生视频 ratio 恒 adaptive，纯文生视频需给 ratio。需要 MINIMAX_API_KEY。dry_run 默认 true：只返回将要提交的 body 并校验参数，不发请求（这条会真实计费，别默认扣）。status 传 task_id 可查一次进度。',
+      '用 MiniMax H3 生成动态底板视频（异步三步：POST api.minimax.cn/v2/video_generation 得 task_id → GET /v2/query/video_generation/{task_id} 轮询 → 下载 task.content.url）。档位五选一：MiniMax-H3（768P/2K，画质优先）、H3-Highspeed（480P/768P，速度优先）、H3-Lite（480P/768P，最便宜）、H3-Max（480P/768P，支持图文音多素材参考）、H3-Regeneration（把已有 768P 成片升到 2K，走 /v2/video_regeneration，需要 source_video）。支持纯文生视频、首帧/尾帧图生视频、多模态参考；图生视频 ratio 恒 adaptive，纯文生视频需给 ratio。需要 MINIMAX_API_KEY。dry_run 默认 true：只返回将要提交的 body 并校验参数，不发请求（这条会真实计费，别默认扣）。status 传 task_id 可查一次进度；models 子字段可列出全部档位与价格。',
     parameters: {
-      prompt: { type: 'string', description: '视频提示词（≤7000 字），可用 [运镜] 标注镜头调度' },
+      prompt: { type: 'string', description: '视频提示词（≤7000 字），可用 [运镜] 标注镜头调度；H3-Regeneration 不需要 prompt' },
       first_frame: { type: 'string', description: '首帧图路径或公网 URL（省略则纯文生视频）' },
       last_frame: { type: 'string', description: '尾帧图路径或公网 URL' },
-      duration: { type: 'number', description: '时长整秒：H3 4–15，H3-Max 5–15，默认 8' },
-      resolution: { type: 'string', enum: ['480P', '768P', '2K'], description: 'H3 支持 768P/2K，H3-Max 支持 480P/768P' },
-      model: { type: 'string', enum: ['MiniMax-H3', 'MiniMax-H3-Max'], description: '默认 MiniMax-H3' },
+      ref_images: { type: 'array', items: { type: 'string' }, description: '参考图（H3 / H3-Highspeed / H3-Max 支持，最多 4 张）' },
+      source_video: { type: 'string', description: 'H3-Regeneration 专用：已有 768P 成片的公网 URL' },
+      duration: { type: 'number', description: '时长整秒：4–15（H3-Max 为 5–15），默认 8' },
+      resolution: { type: 'string', enum: ['480P', '768P', '2K'], description: '随档位而定：H3=768P/2K，Highspeed/Lite/Max=480P/768P，Regeneration 固定 2K' },
+      model: { type: 'string', enum: ['MiniMax-H3', 'MiniMax-H3-Highspeed', 'MiniMax-H3-Lite', 'MiniMax-H3-Max', 'MiniMax-H3-Regeneration'], description: '默认按设置里的 video.model（出厂 MiniMax-H3-Highspeed）' },
       ratio: { type: 'string', description: '纯文生视频的宽高比，如 9:16（图生视频会被强制 adaptive）' },
       out: { type: 'string', description: '成片保存路径，默认 out/h3-<task_id>.mp4' },
       status: { type: 'string', description: '只查询这个 task_id 的进度，不创建新任务' },
+      models: { type: 'boolean', description: '列出 H3 全部档位、分辨率与价格后返回' },
       dry_run: { type: 'boolean', description: '默认 true：只校验参数并打印 body' },
     },
     output: outputDef(),
     isConcurrencySafe: () => true,
     async execute(args, exec) {
       const h = await import('./hailuo.mjs');
+      if (args.models) {
+        const rows = h.modelTable();
+        return out(`H3 共 ${rows.length} 档：` + rows.map(r => `${r.name}（${r.tier}｜${r.resolutions.join('/')}｜${r.price}）`).join('；'), { ok: true, models: rows });
+      }
       if (args.status) {
         const t = await h.queryTask(String(args.status));
         return out(`任务 ${args.status}：${t.status}${t.url ? ' → ' + t.url : ''}`, { ok: t.status === 'succeeded', ...t });
       }
-      if (!args.prompt) throw new Error('缺少 prompt');
+      const { loadSettings } = await import('./settings.mjs');
+      const st = loadSettings(ROOT);
+      const model = args.model || st.video?.model || 'MiniMax-H3-Highspeed';
+      if (!args.prompt && !String(model).includes('Regeneration')) throw new Error('缺少 prompt');
       const body = h.buildPayload({
-        prompt: String(args.prompt),
+        prompt: args.prompt ? String(args.prompt) : '',
         firstFrameUrl: args.first_frame ? h.toDataUri(resolvePath(args.first_frame, exec)) : undefined,
         lastFrameUrl: args.last_frame ? h.toDataUri(resolvePath(args.last_frame, exec)) : undefined,
+        refImageUrls: (args.ref_images || []).map(u => h.toDataUri(resolvePath(u, exec))),
+        sourceVideoUrl: args.source_video,
         duration: args.duration ? Number(args.duration) : 8,
-        resolution: args.resolution || '768P',
-        model: args.model || 'MiniMax-H3',
+        resolution: args.resolution || st.video?.resolution || '768P',
+        model,
         ratio: args.ratio,
       });
       if (args.dry_run !== false || !h.resolveKey()) {
-        const shown = { ...body, content: body.content.map(c => (c.image_url ? { ...c, image_url: { url: String(c.image_url.url).slice(0, 50) + '…' } } : c)) };
-        return out(`未发送（dry_run）：${body.model} ${body.duration}s ${body.resolution} ratio=${body.ratio}`, {
+        const shown = body.content
+          ? { ...body, content: body.content.map(c => (c.image_url ? { ...c, image_url: { url: String(c.image_url.url).slice(0, 50) + '…' } } : c)) }
+          : body;
+        return out(`未发送（dry_run）：${body.model} ${body.duration || ''}${body.duration ? 's' : ''} ${body.resolution}`, {
           ok: true, dryRun: true, body: shown,
           hint: h.resolveKey() ? '' : '缺 MINIMAX_API_KEY，设好环境变量再传 dry_run:false',
         });
       }
-      const { taskId } = await h.createTask(body);
-      const t = await h.waitTask(taskId);
+      const created = await h.createTask(body);
+      const taskId = created.taskId;
+      const t = await h.waitTask(taskId, { kind: created.kind });
       const outFile = resolvePath(args.out, exec, path.join('out', `h3-${taskId}.mp4`));
       const d = await h.download(t.url, outFile);
-      return out(`H3 成片 ${(d.bytes / 1024 / 1024).toFixed(1)}MB → ${rel(d.file)}`, { ok: true, taskId, file: rel(d.file), bytes: d.bytes });
+      return out(`H3 成片 ${(d.bytes / 1024 / 1024).toFixed(1)}MB → ${rel(d.file)}`, { ok: true, taskId, model: body.model, file: rel(d.file), bytes: d.bytes });
+    },
+  });
+}
+
+function seedreamTool() {
+  return defineTool({
+    name: 'ai_diary_seedream',
+    description:
+      '用 Seedream（火山方舟 Ark）出图：给 AI 日记角色补立绘/表情/姿势，或生成 B 站封面底图。走 POST ark.cn-beijing.volces.com/api/v3/images/generations，需要 ARK_API_KEY（设置里填 keys.ark）。支持文生图和图生图（传 refs 当参考，只有 seedream-4.0 支持参考图）。产物落 assets/generated/，也可以 out 指定最终路径（例如直接覆盖某个立绘档位）。models=true 先列型号与尺寸。',
+    parameters: {
+      prompt: { type: 'string', description: '画面描述；要给角色保持一致性，就在 refs 里带上已有立绘并写明「保持同一角色五官与配色」' },
+      model: { type: 'string', description: '型号：seedream-4.0（默认，支持参考图）/ seedream-3.0；也可直接填方舟 model id' },
+      size: { type: 'string', description: '尺寸：2K（默认）/ 1K / 4K，或 1024x1536、720x1280 这类具体像素' },
+      refs: { type: 'array', items: { type: 'string' }, description: '参考图路径或 URL（最多 4 张），本地文件会自动转 data URI' },
+      n: { type: 'number', description: '一次出几张，1–4，默认 1' },
+      seed: { type: 'number', description: '随机种子，固定后同提示词结果稳定' },
+      out: { type: 'string', description: '单张时的最终保存路径（如 assets/characters/deepseek/v9.png）；多张时按 -1/-2 后缀' },
+      models: { type: 'boolean', description: '列出 Seedream 型号与可选尺寸后返回' },
+    },
+    output: outputDef(),
+    isConcurrencySafe: () => true,
+    async execute(args, exec) {
+      const sd = await import('./seedream.mjs');
+      if (args.models) {
+        const rows = sd.modelTable();
+        return out('Seedream 可用型号：' + rows.map(r => `${r.name}（id=${r.id}｜${r.sizes.join('/')}${r.refs ? '｜支持参考图' : ''}）`).join('；'), { ok: true, models: rows });
+      }
+      if (!args.prompt) throw new Error('缺少 prompt');
+      const { loadSettings } = await import('./settings.mjs');
+      const st = loadSettings(ROOT);
+      const res = await sd.generate({
+        prompt: String(args.prompt),
+        model: args.model || st.image?.model || 'seedream-4.0',
+        size: args.size || st.image?.size || '2K',
+        refs: (args.refs || []).map(r => resolvePath(r, exec)),
+        n: args.n ? Number(args.n) : 1,
+        seed: args.seed,
+        cfg: { apiKey: st.keys?.ark || '' },
+      });
+      const files = res.files.filter(f => f.file);
+      if (args.out && files.length) {
+        const target = resolvePath(args.out, exec);
+        fs.mkdirSync(path.dirname(target), { recursive: true });
+        const ext = path.extname(target) || '.png';
+        files.forEach((f, i) => {
+          const dst = files.length === 1 ? target : target.replace(new RegExp(ext + '$', 'i'), `-${i + 1}${ext}`);
+          fs.copyFileSync(f.file, dst);
+          f.saved = dst;
+        });
+      }
+      const list = files.map(f => rel(f.saved || f.file)).join('、');
+      return out(`Seedream 出图 ${files.length} 张 → ${list}`, { ok: true, count: files.length, files: files.map(f => rel(f.saved || f.file)) });
     },
   });
 }
@@ -1012,7 +1095,7 @@ export function apply(ctx, config = {}) {
   } catch (e) {
     console.warn('[ai-diary] 技能注册失败：' + e.message);
   }
-  const tools = [topicsTool(), planTool(), renderTool(), voiceTool(), assetsTool(), hailuoTool(), publishTool(), pickTool(), postTool(), commentsTool(), localTool(), motionTool(), updateTool(), settingsTool(), scheduleTool()];
+  const tools = [topicsTool(), planTool(), renderTool(), voiceTool(), assetsTool(), hailuoTool(), seedreamTool(), publishTool(), pickTool(), postTool(), commentsTool(), localTool(), motionTool(), updateTool(), settingsTool(), scheduleTool()];
   // 桌面操控（并入自 dsh-pc-control）：pc_see / pc_act
   try {
     tools.push(...createPcTools({ defineTool, out, outputDef, cfg: { failsafe: true, maxActions: 24, timeoutMs: 30000, shotTtlMinutes: 30 } }));
@@ -1131,6 +1214,7 @@ export function apply(ctx, config = {}) {
   // 设置面板：官方 settings wire 只服务硬编码白名单，第三方插件空间不在其中，
   // 所以像 dsh-plugin-memory 一样自己开一条 HTTP 路由，前端区块（lib/client.js）直连它。
   try {
+    if (typeof ctx.inject !== 'function') throw new Error('宿主 ctx 没有 inject，跳过设置路由（仅测试桩会这样）');
     ctx.inject(['webServer'], (webCtx) => {
       const dispose = webCtx.webServer.register({
         kind: 'exact',
@@ -1144,10 +1228,19 @@ export function apply(ctx, config = {}) {
             const [S, U] = await Promise.all([import('./settings.mjs'), import('./update.mjs')]);
             const snapshot = () => {
               const st = S.loadSettings(ROOT);
+              const keys = {};
+              for (const [field, env] of Object.entries(S.SECRETS)) {
+                const v = process.env[env] || String((st.keys && st.keys[field]) || '');
+                keys[field] = { ready: Boolean(v), source: process.env[env] ? 'env' : v ? 'file' : 'none', preview: S.mask(v) };
+              }
               return {
                 version: readVersion(),
                 update: st.update || {},
                 render: st.render || {},
+                image: st.image || {},
+                video: st.video || {},
+                tts: st.tts || {},
+                keys,
                 state: U.readState(),
                 settingsFile: S.settingsPath(ROOT),
               };

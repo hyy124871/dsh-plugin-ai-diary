@@ -22,6 +22,58 @@ const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
 const lerp = (a, b, t) => a + (b - a) * t;
 const ease = t => (t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2);
 
+/* ---------- 编码器：CPU（libx264）/ GPU（NVENC→QSV→AMF） ---------- */
+// 每种硬件编码器的质量参数不同，统一折算到「视觉上接近 x264 crf17」的档位。
+const GPU_CANDIDATES = [
+  { codec: 'h264_nvenc', label: 'NVIDIA NVENC', args: ['-preset', 'p5', '-rc', 'vbr', '-cq', '17', '-b:v', '0', '-profile:v', 'high'] },
+  { codec: 'h264_qsv', label: 'Intel QSV', args: ['-global_quality', '15', '-look_ahead', '0', '-profile:v', 'high'] },
+  { codec: 'h264_amf', label: 'AMD AMF', args: ['-quality', 'quality', '-rc', 'cqp', '-qp_i', '16', '-qp_p', '18'] },
+];
+
+let _gpuProbe;
+
+/** 探测本机可用的硬件编码器；没有就返回 null。结果缓存，重复调用不再试跑。 */
+export function detectGpuEncoder(ffmpegPath) {
+  if (_gpuProbe !== undefined) return _gpuProbe;
+  for (const c of GPU_CANDIDATES) {
+    try {
+      execSync(
+        `"${ffmpegPath}" -hide_banner -loglevel error -f lavfi -i color=c=black:s=320x240:r=1:d=1 -frames:v 1 -c:v ${c.codec} -f null -`,
+        { stdio: 'pipe', timeout: 20000 },
+      );
+      _gpuProbe = c;
+      return c;
+    } catch {
+      /* 这个硬件编码器不可用，试下一个 */
+    }
+  }
+  _gpuProbe = null;
+  return null;
+}
+
+/**
+ * 生成 ffmpeg 视频编码参数。
+ * accelerator: 'cpu' 强制 x264 | 'gpu' 强制硬件（不可用则回落 x264）| 'auto' 有硬件就用
+ */
+export function videoCodecArgs(ffmpegPath, opts = {}) {
+  const accel = String(opts.accelerator || 'auto').toLowerCase();
+  const cpuArgs = ['-c:v', 'libx264', '-preset', String(opts.preset || 'medium'), '-crf', String(opts.crf ?? 17), '-profile:v', 'high', '-level', '4.1'];
+  if (accel === 'cpu') return cpuArgs;
+  const gpu = detectGpuEncoder(ffmpegPath);
+  if (gpu) return ['-c:v', gpu.codec, ...gpu.args];
+  if (accel === 'gpu') console.warn('[ai-diary] 未检测到可用的硬件编码器，已回落 CPU（libx264）');
+  return cpuArgs;
+}
+
+/** 当前实际会用的编码器名，给 status/面板显示 */
+export function describeAccelerator(ffmpegPath, accel = 'auto') {
+  const a = String(accel || 'auto').toLowerCase();
+  if (a === 'cpu') return 'CPU (libx264)';
+  const gpu = detectGpuEncoder(ffmpegPath);
+  if (gpu) return `${gpu.label} (${a})`;
+  return 'CPU (libx264，未检测到硬件编码器)';
+}
+
 /* ---------- 时长规则（与网页版工坊一致） ---------- */
 export function beatDuration(text, mood) {
   const n = [...String(text)].length;
@@ -223,11 +275,11 @@ export async function renderEpisode(script, opts = {}) {
   let encoder = null;
   if (!pngDir) {
     fs.mkdirSync(path.dirname(outFile), { recursive: true });
+    // 编码器按设置选：cpu=libx264（画质最好），gpu=硬件编码（快 3–5 倍），auto=有硬件就用
     encoder = spawn(ffmpegPath, [
       '-y', '-hide_banner', '-loglevel', 'error',
       '-f', 'rawvideo', '-pix_fmt', 'rgba', '-s', `${OW}x${OH}`, '-framerate', String(FPS), '-i', '-',
-      // 1080p 下把编码质量提一档：medium/crf 17 + high profile，成片在 B 站二压前能保住更多细节
-      '-c:v', 'libx264', '-preset', String(opts.preset || 'medium'), '-crf', String(opts.crf ?? 17), '-profile:v', 'high', '-level', '4.1',
+      ...videoCodecArgs(ffmpegPath, opts),
       // 分段并行时每段要限线程，否则 N 个 x264 互相抢核反而更慢
       ...(Number(opts.threads) > 0 ? ['-threads', String(Number(opts.threads))] : []),
       '-pix_fmt', 'yuv420p', '-movflags', '+faststart',

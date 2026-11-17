@@ -1,6 +1,6 @@
 ---
 name: ai-diary
-description: 用 ai_diary_* 与 pc_* 十七个工具把「AI 角色日记」竖屏短剧从选题做到 B 站投稿：选题 → 剧本 → 本地渲染出片 → 三家 TTS 配音 → MiniMax H3 生成动态底板 → 自动选素材 → 走哔哩哔哩客户端上传/填表/评论（内置电脑操控引擎，不用浏览器）。
+description: 用 ai_diary_* 与 pc_* 十八个工具把「AI 角色日记」竖屏短剧从选题做到 B 站投稿：选题 → 剧本 → 本地渲染出片（CPU/GPU 可切）→ 三家 TTS 配音 → Seedream 出立绘 / MiniMax H3 五档生成动态底板 → 自动选素材 → 走哔哩哔哩客户端上传/填表/评论（内置电脑操控引擎，不用浏览器）。
 whenToUse: 用户要做 AI 角色日记/竖屏短剧、批量出片、给片子配音，或提到 AI 日记工坊、ai_diary_* 工具、MiniMax H3、千问 TTS、发到 B 站时。
 ---
 
@@ -26,6 +26,7 @@ whenToUse: 用户要做 AI 角色日记/竖屏短剧、批量出片、给片子�
 14. `ai_diary_update` —— 联网查 GitHub Releases、下载、按 profile 安装（不会静默装）
 15. `ai_diary_settings` —— 读写插件设置：`status` 一屏体检（环境/账号/发布/内容/定时）；`get` 看配置；`set` 改 API Key、配音服务商与音色、ComfyUI 地址、发布策略
 16. `ai_diary_schedule` —— 定时自动出片：`status` / `enable` / `disable` / `set` / `run-now`
+17. `ai_diary_seedream` —— Seedream 出图（火山方舟 Ark）：`models` 列型号、`generate` 按提示词出图；`refs` 传参考图保持角色一致，`out` 可直接覆盖立绘档位。需要 `keys.ark`（ARK_API_KEY）
 
 设置面板与配置文件：Harness 官方设置面板读插件导出的 `Config`（schemastery）；配置落在 `~/.ai-diary/settings.json`，环境变量（`MIMO_API_KEY` / `DASHSCOPE_API_KEY` / `MINIMAX_API_KEY` / `GITHUB_TOKEN`）优先。定时默认关闭，一天只跑一次，到点自动出片并把文案填进客户端，仍停在「立即投稿」前。
 

@@ -29,6 +29,7 @@ const opts = {
   look: flag('look'),
   maxSeconds: flag('max-seconds') ? Number(flag('max-seconds')) : undefined,
   threads: flag('threads') ? Number(flag('threads')) : undefined,
+  accelerator: flag('accelerator'),
   onProgress: (ratio) => console.log('PROGRESS ' + ratio.toFixed(4)),
 };
 

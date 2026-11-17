@@ -1,6 +1,6 @@
 {
   "name": "dsh-plugin-ai-diary",
-  "version": "0.7.7",
+  "version": "0.7.8",
   "description": "AI 日记工坊：选题 + 本地渲染引擎（6 套模板 / 6 套动态底板 / 每角色 10 套立绘）+ 三家 TTS 配音 + MiniMax H3 视频底板 + 哔哩哔哩客户端投稿与评论自动化（内置电脑操控引擎），为 9:16 竖屏 AI 角色短剧而生",
   "type": "module",
   "main": "src/index.mjs",
@@ -79,7 +79,10 @@
       "patch": "./cordis.patch.yml"
     },
     "client": {
-      "platform": "web"
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-slots"
+      ]
     }
   }
 }

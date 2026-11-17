@@ -34,7 +34,7 @@ async function main() {
   settings --action status|get|reset|set [--mimo k] [--qwen k] [--minimax k] [--bili "SESSDATA=…"] [--provider qwen] [--voice 冰糖]
   plan     [--topic day7-balance] [--character gpt] [--template dossier] [--out out/x.json]
   plan     --all [--template audit]              题材库一次性编译成剧本（省对话轮次）
-  render   --script out/day7-balance.json [--out out/x.mp4] [--template terminal] [--plate report] [--look v2] [--voice 冰糖] [--png] [--scale 1.5=1080p] [--fps 24]
+  render   --script out/day7-balance.json [--out out/x.mp4] [--template terminal] [--plate report] [--look v2] [--voice 冰糖] [--png] [--scale 1.5=1080p] [--fps 24] [--workers 4] [--accelerator cpu|gpu|auto]
   voice    --check | --script out/x.json [--provider xiaomi|qwen|minimax] [--mode design] [--voice Cherry] [--mux out/x.mp4]
   video    --prompt "..." [--from out/x.png] [--last out/x2.png] [--duration 8] [--resolution 768P] [--model MiniMax-H3] [--out out/x.mp4] [--status task_id]
   template                                      列出全部版面模板
@@ -139,6 +139,7 @@ async function main() {
       scale: num(flags.scale) || Number(st.render?.scale) || undefined, // 默认 1.5 → 1080×1920；1 → 720p；2 → 1440×2560
       workers: num(flags.workers),
       workerSetting: Number(st.render?.workers) || 0,
+      accelerator: flags.accelerator ? String(flags.accelerator) : String(st.render?.accelerator || 'auto'),
       maxSeconds: num(flags.preview),
       template: flags.template,
       plate: platePath,
