@@ -1262,6 +1262,16 @@ export function apply(ctx, config = {}) {
               const r = await U.autoUpdate(ROOT, {});
               return send(200, { ok: r.ok, stage: r.stage, latest: r.latest, needsRestart: Boolean(r.needsRestart), ...snapshot() });
             }
+            if (body && body.action === 'produce') {
+              // 面板上的「立即出片」：立刻返回，后台按当前配置跑一遍完整流程。
+              // 与 ai_diary_schedule 的 run-now 同一套编排，长任务不阻塞这个请求。
+              const SCH = await import('./scheduler.mjs');
+              S.applyEnv(S.loadSettings(ROOT));
+              Promise.resolve()
+                .then(() => SCH.runOnce(ROOT, { reason: 'panel' }))
+                .catch(() => {});
+              return send(200, { ok: true, started: true, ...snapshot() });
+            }
             return send(400, { error: '需要 {patch} 或 {action:check|update}' });
           } catch (e) {
             try {

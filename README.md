@@ -1,6 +1,41 @@
 # dsh-plugin-ai-diary
 
-给 **DeepSeek Harness（dsh）** 用的一个插件：把「AI 角色日记短剧」从选题到发布整条链子做成 17 个工具（15 个 `ai_diary_*` + 2 个 `pc_*`），画面由本地渲染引擎合成，配音与动态底板才可选调用外部接口；投稿、回评论、选素材都能在哔哩哔哩客户端里真机自动完成，不开浏览器。
+给 **DeepSeek Harness（dsh）** 用的一个插件：把「AI 角色日记短剧」从选题到发布整条链子做成 18 个工具（16 个 `ai_diary_*` + 2 个 `pc_*`），画面由本地渲染引擎合成，配音与动态底板才可选调用外部接口；投稿、回评论、选素材都能在哔哩哔哩客户端里真机自动完成，不开浏览器。
+
+## v0.8.1：设置页终于出现了，左侧栏也多了个入口
+
+前几个版本「AI 日记工坊」死活不进设置页。真因不在槽位名、也不在 `dsh.client` 声明，而是**注册少了两样东西**。解开 `app.asar` 直接看官方 `@deepseek-ai/dsh-client-ui-settings-plugins/lib/client.js`，它的写法是：
+
+```js
+const NS = 'settings.plugins'
+const inject = ['slots', 'locale']
+function apply(ctx) {
+  const t = ctx.locale.bind(NS)
+  ctx.effect(() => ctx.locale.register(NS, { zh, en, ja, es, fr, de, ru, pt }))
+  ctx.slots.inject('settings.section', () => ctx.slots.register({
+    name: 'settings.section',
+    id: 'plugins',
+    order: 15,
+    label: () => t('nav'),
+    locale: NS,
+    inject: sectionInjected,
+  }, PluginsSettingsSection))
+}
+exports.inject = inject
+```
+
+对照我们之前的写法，缺的就是 **`locale` 命名空间**（`ctx.locale.register` + 注册时带 `locale: NS` + `exports.inject` 含 `'locale'`）。补上之后设置页立刻出现。
+
+这一版另外做了四件事：
+
+| 改动 | 说明 |
+|---|---|
+| 修「渲染算力」三态被裁 | `自动` 原来被挤出容器右缘：文本区改为 `flex:1 1 200px`、控件区 `flexShrink:0` + 允许换行 |
+| 新增 API Key 区 | 小米 MiMo / 阿里千问 / MiniMax / 火山 ARK / B 站 Cookie / GitHub Token，各带就绪状态点、掩码预览、单独保存；设了环境变量后自动只读 |
+| 新增「立即出片」 | 面板上一键跑完整流程（选题→剧本→渲染→配音→投稿前停住），走 `SCH.runOnce`，长任务后台执行不阻塞请求 |
+| 左侧栏入口 + 主面板 | 注册 `sidebar.panellist`（与「插件 / 自动化任务 / 更多」同组）与 `main` keyed 面板，点开直接在中间栏出片 |
+| 插件图标 | `assets/icon.svg` + `package.json` 的 `icon` 字段，插件列表里不再是默认灰块 |
+
 
 灵感来自 `dsh-ai-diary` 那种「静态立绘 + 代码动效」的做法，也接着 B 站上那条《【Day7】余额只剩一块钱，我问他是不是不要我了》的调子——但它不靠生成模型烧额度，靠模板 + 确定性绘制；真要动态底板时才走 Seedance / MiniMax H3。
 
