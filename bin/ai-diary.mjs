@@ -113,7 +113,7 @@ async function main() {
   if (cmd === 'render') {
     if (!flags.script) throw new Error('缺少 --script');
     const { loadScript } = await import('../src/script.mjs');
-    const { renderEpisode } = await import('../src/engine.mjs');
+    const { renderEpisodeParallel } = await import('../src/parallel.mjs');
     const { loadSettings } = await import('../src/settings.mjs');
     const st = loadSettings(path.resolve('.'));
     const s = loadScript(flags.script);
@@ -132,18 +132,24 @@ async function main() {
         platePath = undefined;
       }
     }
-    const r = await renderEpisode(s, {
+    const r = await renderEpisodeParallel(s, {
       out: path.resolve(out),
       pngDir: png ? path.resolve('out', `${s.id}-frames`) : null,
       fps: num(flags.fps) || Number(st.render?.fps) || undefined,
       scale: num(flags.scale) || Number(st.render?.scale) || undefined, // 默认 1.5 → 1080×1920；1 → 720p；2 → 1440×2560
+      workers: num(flags.workers),
+      workerSetting: Number(st.render?.workers) || 0,
       maxSeconds: num(flags.preview),
       template: flags.template,
       plate: platePath,
       onProgress: p => process.stdout.write(`\r渲染 ${(p * 100).toFixed(0)}%  `),
     });
     process.stdout.write('\n');
-    console.log(png ? `已导出 ${r.frames} 帧 PNG（${r.width}×${r.height}）→ out/${s.id}-frames` : `完成 ${r.seconds}s / ${r.frames} 帧 / ${r.width}×${r.height} → ${out}（${((Date.now() - t0) / 1000).toFixed(1)}s）`);
+    console.log(
+      png
+        ? `已导出 ${r.frames} 帧 PNG（${r.width}×${r.height}）→ out/${s.id}-frames`
+        : `完成 ${r.seconds}s / ${r.frames} 帧 / ${r.width}×${r.height} → ${out}（${((Date.now() - t0) / 1000).toFixed(1)}s，${r.segments || 1} 段并行）`,
+    );
 
     // --voice：渲染完顺手配音并混流（小米 MiMo TTS，需要 MIMO_API_KEY）
     if (flags.voice && !png) {

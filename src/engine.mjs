@@ -193,7 +193,12 @@ export async function renderEpisode(script, opts = {}) {
   const tl = timeline(script.beats);
   const total = tl.length ? tl[tl.length - 1].end + 2.0 : 2.0; // 片尾 2s
   const renderTotal = opts.maxSeconds ? Math.min(total, opts.maxSeconds) : total;
-  const frames = Math.max(1, Math.round(renderTotal * FPS));
+  const framesAll = Math.max(1, Math.round(renderTotal * FPS));
+  // 分段并行：只渲染 [frameStart, frameEnd) 这一段，其他逻辑（时间轴、片头片尾）都按绝对帧号算，
+  // 所以每一段拼回去和单片渲染逐帧一致。
+  const f0 = Math.max(0, Math.floor(Number(opts.frameStart) || 0));
+  const f1 = Math.min(framesAll, Math.floor(Number(opts.frameEnd) || framesAll));
+  const frames = Math.max(1, f1 - f0);
 
   const { character, background, plate } = opts.assetPaths || assetPaths(ep, script, opts);
   const charImg = character && fs.existsSync(character) ? await loadImage(character) : null;
@@ -222,7 +227,9 @@ export async function renderEpisode(script, opts = {}) {
       '-y', '-hide_banner', '-loglevel', 'error',
       '-f', 'rawvideo', '-pix_fmt', 'rgba', '-s', `${OW}x${OH}`, '-framerate', String(FPS), '-i', '-',
       // 1080p 下把编码质量提一档：medium/crf 17 + high profile，成片在 B 站二压前能保住更多细节
-      '-c:v', 'libx264', '-preset', 'medium', '-crf', '17', '-profile:v', 'high', '-level', '4.1',
+      '-c:v', 'libx264', '-preset', String(opts.preset || 'medium'), '-crf', String(opts.crf ?? 17), '-profile:v', 'high', '-level', '4.1',
+      // 分段并行时每段要限线程，否则 N 个 x264 互相抢核反而更慢
+      ...(Number(opts.threads) > 0 ? ['-threads', String(Number(opts.threads))] : []),
       '-pix_fmt', 'yuv420p', '-movflags', '+faststart',
       outFile,
     ], { stdio: ['pipe', 'ignore', 'pipe'] });
@@ -237,7 +244,8 @@ export async function renderEpisode(script, opts = {}) {
   const charName = (ep.character || 'deepseek').toUpperCase();
   const moodColor = { calm: '#8FD6C4', low: '#7FA8C9', panic: '#E08A4B', relief: '#C8B6EE' };
 
-  for (let i = 0; i < frames; i++) {
+  for (let k = 0; k < frames; k++) {
+    const i = f0 + k;
     const t = i / FPS;
     const prog = t / total;
 
@@ -448,7 +456,7 @@ export async function renderEpisode(script, opts = {}) {
       const buf = Buffer.from(img.data.buffer, img.data.byteOffset, img.data.byteLength);
       if (!encoder.stdin.write(buf)) await new Promise(r => encoder.stdin.once('drain', r));
     }
-    if (i % 48 === 0 && opts.onProgress) opts.onProgress(i / frames);
+    if (k % 48 === 0 && opts.onProgress) opts.onProgress(k / frames);
   }
 
   if (encoder) {

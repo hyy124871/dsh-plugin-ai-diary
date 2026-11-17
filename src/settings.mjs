@@ -28,7 +28,8 @@ export const DEFAULTS = {
   tts: { provider: 'xiaomi', voice: '' },
   comfy: { base: 'http://127.0.0.1:8188' },
   // 成片规格：逻辑布局固定 720×1280，scale 是超采样倍数 → 1.5 出 1080×1920
-  render: { scale: 1.5, fps: 24 },
+  // workers 是并行渲染段数，0 = 自动（核数一半，最多 4 段）
+  render: { scale: 1.5, fps: 24, workers: 0 },
   // 自动更新：启动静默查新；autoInstall=true 查询到就自己装（装完要重启 Harness）
   update: { autoCheck: true, autoInstall: true },
   publish: { mode: 'client', dryRun: true, autoFill: false, autoSubmit: false, statement: '自制' },

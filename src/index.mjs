@@ -19,7 +19,45 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 export const ROOT = path.resolve(__dirname, '..');
 
 export const name = 'dsh-plugin-ai-diary';
+// webServer 不写进 inject：按 dsh-plugin-memory 的写法用 ctx.inject(['webServer'], cb) 动态注入，
+// 这样没有 web 服务的宿主（纯 CLI 部署）也不会卡住插件加载。
 export const inject = ['tools'];
+
+/** 读自身 package.json 的版本号（面板与体检都要用） */
+function readVersion() {
+  try {
+    return JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8')).version || '0.0.0';
+  } catch {
+    return '0.0.0';
+  }
+}
+
+/** 读完整个请求体并解析 JSON（面板 POST 用） */
+function readJsonBody(req, limit = 1 << 20) {
+  return new Promise((resolve, reject) => {
+    let size = 0;
+    const chunks = [];
+    req.on('data', (c) => {
+      size += c.length;
+      if (size > limit) {
+        reject(new Error('body too large'));
+        req.destroy?.();
+        return;
+      }
+      chunks.push(c);
+    });
+    req.on('end', () => {
+      const raw = Buffer.concat(chunks).toString('utf8').trim();
+      if (!raw) return resolve({});
+      try {
+        resolve(JSON.parse(raw));
+      } catch (e) {
+        reject(new Error('bad json: ' + e.message));
+      }
+    });
+    req.on('error', reject);
+  });
+}
 
 // 真实运行时从 @deepseek-ai/dsh-tools 取 defineTool；脱离 dsh 单独跑测试时退化为恒等函数
 // （此时工具定义仍然是一个普通对象，可直接被 mock ctx 调用，方便单元测试）。
@@ -265,13 +303,14 @@ function renderTool() {
       height: { type: 'number', description: '覆盖逻辑高度，默认 1280' },
       scale: { type: 'number', description: '超采样倍数，默认 1.5（紧凑 720×1280 布局 → 真实输出 1080×1920）；传 1 退回 720p，传 2 出 1440×2560' },
       fps: { type: 'number', description: '覆盖帧率，默认 24' },
+      workers: { type: 'number', description: '并行渲染段数：按 CPU 核数把整片切段同时画，再无损拼接；1=单片，0/省略=按设置（默认自动，最多 4 段）' },
     },
     output: outputDef(),
     isConcurrencySafe: () => false,
     async execute(args, exec) {
       if (!args || !args.script) throw new Error('缺少 script 参数：先 ai_diary_plan，再把返回的 script 路径传进来');
       const { loadScript, summary } = await import('./script.mjs');
-      const { renderEpisode } = await import('./engine.mjs');
+      const { renderEpisodeParallel } = await import('./parallel.mjs');
       const scriptPath = resolvePath(args.script, exec);
       const script = loadScript(scriptPath);
       const { loadSettings } = await import('./settings.mjs');
@@ -280,15 +319,18 @@ function renderTool() {
       const outFile = resolvePath(args.out, exec, path.join('out', `${script.id}.mp4`));
       const pngDir = args.png ? resolvePath(null, exec, path.join('out', `${script.id}-frames`)) : null;
       const t0 = Date.now();
-      const res = await renderEpisode(script, {
+      const res = await renderEpisodeParallel(script, {
         out: outFile,
         pngDir,
         width: args.width ? Number(args.width) : undefined,
         height: args.height ? Number(args.height) : undefined,
         fps: args.fps ? Number(args.fps) : Number(st.render?.fps) || undefined,
         scale: args.scale ? Number(args.scale) : Number(st.render?.scale) || undefined,
+        workers: args.workers ? Number(args.workers) : undefined,
+        workerSetting: Number(st.render?.workers) || 0,
         maxSeconds: args.preview_seconds ? Number(args.preview_seconds) : undefined,
         template: args.template,
+        look: script.episode?.look,
       });
       const cost = ((Date.now() - t0) / 1000).toFixed(1);
       let voiceLine = '';
@@ -1084,6 +1126,62 @@ export function apply(ctx, config = {}) {
     }, 'ai-diary: paths');
   } catch (e) {
     console.warn('[ai-diary] 目录初始化失败：' + e.message);
+  }
+
+  // 设置面板：官方 settings wire 只服务硬编码白名单，第三方插件空间不在其中，
+  // 所以像 dsh-plugin-memory 一样自己开一条 HTTP 路由，前端区块（lib/client.js）直连它。
+  try {
+    ctx.inject(['webServer'], (webCtx) => {
+      const dispose = webCtx.webServer.register({
+        kind: 'exact',
+        path: '/api/ai-diary/config',
+        handler: async (req, res) => {
+          const send = (code, obj) => {
+            res.writeHead(code, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' });
+            res.end(JSON.stringify(obj));
+          };
+          try {
+            const [S, U] = await Promise.all([import('./settings.mjs'), import('./update.mjs')]);
+            const snapshot = () => {
+              const st = S.loadSettings(ROOT);
+              return {
+                version: readVersion(),
+                update: st.update || {},
+                render: st.render || {},
+                state: U.readState(),
+                settingsFile: S.settingsPath(ROOT),
+              };
+            };
+            if (req.method === 'GET') return send(200, snapshot());
+            if (req.method !== 'POST') return send(405, { error: 'only GET/POST' });
+
+            const body = await readJsonBody(req);
+            if (body && body.patch) {
+              S.saveSettings(ROOT, body.patch);
+              return send(200, { ok: true, ...snapshot() });
+            }
+            if (body && body.action === 'check') {
+              const c = await U.checkUpdate(ROOT);
+              U.writeState({ ok: c.ok, current: c.current, latest: c.latest, hasUpdate: Boolean(c.hasUpdate), reason: c.reason || null });
+              return send(200, { ok: c.ok, ...snapshot(), check: { current: c.current, latest: c.latest, hasUpdate: c.hasUpdate, reason: c.reason || null } });
+            }
+            if (body && body.action === 'update') {
+              const r = await U.autoUpdate(ROOT, {});
+              return send(200, { ok: r.ok, stage: r.stage, latest: r.latest, needsRestart: Boolean(r.needsRestart), ...snapshot() });
+            }
+            return send(400, { error: '需要 {patch} 或 {action:check|update}' });
+          } catch (e) {
+            try {
+              res.writeHead(500, { 'content-type': 'application/json; charset=utf-8' });
+              res.end(JSON.stringify({ error: String((e && e.message) || e) }));
+            } catch {}
+          }
+        },
+      });
+      webCtx.effect(() => dispose, 'ai-diary: config route');
+    }, 'ai-diary: webServer');
+  } catch (e) {
+    console.warn('[ai-diary] 设置路由挂载失败：' + e.message);
   }
 }
 
