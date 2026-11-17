@@ -64,6 +64,10 @@ export const Config = Schema
       scale: Schema.number().description('成片超采样倍数：1.5 = 1080×1920（默认），1 = 720p，2 = 1440×2560'),
       fps: Schema.number().description('成片帧率，默认 24'),
     }).description('成片规格'),
+    update: Schema.object({
+      autoCheck: Schema.boolean().description('启动时静默查一次新版本，结果写进体检面板（默认开）'),
+      autoInstall: Schema.boolean().description('查到新版本就自动下载并安装到本机 profile（默认关；装完要重启 Harness 才生效）'),
+    }).description('自动更新'),
     publish: Schema.object({
       dryRun: Schema.boolean().description('预演：只准备文案与客户端，不真的投稿'),
       autoFill: Schema.boolean().description('把视频与文案填进投稿页'),
@@ -790,17 +794,30 @@ function updateTool() {
   return defineTool({
     name: 'ai_diary_update',
     description:
-      '联网自更新：查 GitHub Releases 上比本地新的版本（action=check，只读不下载），或下载对应 .tgz 到 dist/updates 并给出安装命令（action=download）。配置在 config/update.json 的 repo（owner/name）。私有仓库需 GITHUB_TOKEN；公开仓库只读查新不需要 token。永远不自动安装：给 profile 才在 apply 时调 install.ps1。',
+      '联网自更新：查 GitHub Releases 上比本地新的版本（action=check，只读不下载），下载对应 .tgz（action=download），按 profile 安装（action=apply），或一条命令搞定「查新→下载→装进本机 profile」（action=auto，profile 可省略，自动扫 ~/.dsh/profiles）。配置在 config/update.json 的 repo（owner/name）。私有仓库需 GITHUB_TOKEN；公开仓库只读查新不需要 token。装完必须完全退出 Harness 再启动才生效。',
     parameters: {
-      action: { type: 'string', enum: ['check', 'download', 'apply'], description: 'check=查新，download=下载最新 tgz，apply=下载并按 profile 安装；默认 check' },
+      action: { type: 'string', enum: ['check', 'download', 'apply', 'auto'], description: 'check=查新，download=下载最新 tgz，apply=下载并按 profile 安装，auto=查新+下载+自动安装到本机 profile；默认 check' },
       repo: { type: 'string', description: '覆盖 owner/name，省略用 config/update.json' },
-      profile: { type: 'string', description: 'action=apply 时必填：dsh profile 根目录' },
+      profile: { type: 'string', description: 'action=apply/auto 时可指定 dsh profile 根目录；省略则自动找装了本插件的 profile' },
     },
     output: outputDef(),
     isConcurrencySafe: () => false,
     async execute(args, exec) {
       const U = await import('./update.mjs');
       const action = String(args.action || 'check');
+      if (action === 'auto') {
+        const r = await U.autoUpdate(ROOT, { profile: args.profile ? resolvePath(args.profile, exec) : undefined, repo: args.repo });
+        if (r.stage === 'up-to-date') return out(`已是最新版 ${r.current}，没有动作`, r);
+        if (!r.ok) return out(`自动更新没走完（${r.stage}）：${r.reason || '见 details'}`, r);
+        if (r.stage === 'installed') {
+          const okList = (r.targets || []).filter((t) => t.ok).map((t) => t.profile);
+          return out(
+            `已更新 ${r.current} → ${r.latest}，装到 ${okList.length} 个 profile；完全退出 Harness 再启动生效`,
+            { ...r, note: '重启后才加载新代码' },
+          );
+        }
+        return out(`已下载 ${r.latest}，未安装（试运行）`, r);
+      }
       const c = await U.checkUpdate(ROOT, { repo: args.repo });
       if (!c.ok) return out(`查新失败：${c.reason}`, c);
       if (action === 'check') {
@@ -1009,6 +1026,49 @@ export function apply(ctx, config = {}) {
     }, 'ai-diary: scheduler');
   } catch (e) {
     console.warn('[ai-diary] 定时器挂载失败：' + e.message);
+  }
+  // 自动更新：启动 8 秒后静默查一次新版本（不阻塞、绝不抛错），结果写 ~/.ai-diary/update-state.json。
+  // autoInstall 默认关：只查不装，避免在用户没准备重启时悄悄换掉代码。
+  try {
+    ctx.effect(() => {
+      let timer = null;
+      void (async () => {
+        try {
+          const [U, S] = await Promise.all([import('./update.mjs'), import('./settings.mjs')]);
+          const opt = S.loadSettings(ROOT).update || {};
+          if (opt.autoCheck === false) return;
+          timer = setTimeout(() => {
+            void (async () => {
+              try {
+                if (opt.autoInstall) {
+                  const r = await U.autoUpdate(ROOT, {});
+                  console.log(
+                    '[ai-diary] 自动更新：' +
+                      (r.stage === 'up-to-date' ? '已是最新' : r.ok ? `已装 ${r.latest}（重启生效）` : '失败 ' + (r.reason || r.stage)),
+                  );
+                } else {
+                  const c = await U.checkUpdate(ROOT);
+                  U.writeState({ ok: c.ok, current: c.current, latest: c.latest, hasUpdate: Boolean(c.hasUpdate), reason: c.reason || null });
+                  if (c.hasUpdate) console.log(`[ai-diary] 有新版本 ${c.current} → ${c.latest}（用 ai_diary_update action=auto 自动装）`);
+                }
+              } catch {
+                /* 查新失败不影响使用 */
+              }
+            })();
+          }, 8000);
+          timer.unref?.();
+        } catch {
+          /* 拿不到设置就跳过 */
+        }
+      })();
+      return () => {
+        try {
+          clearTimeout(timer);
+        } catch {}
+      };
+    }, 'ai-diary: auto-update');
+  } catch (e) {
+    console.warn('[ai-diary] 自动查新挂载失败：' + e.message);
   }
   try {
     ctx.effect(() => {

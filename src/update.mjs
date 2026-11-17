@@ -7,7 +7,9 @@
 
 import crypto from 'node:crypto';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
+import { execFileSync, execSync } from 'node:child_process';
 
 const API = 'https://api.github.com';
 
@@ -128,4 +130,145 @@ export function installCommand(tgz, profile) {
   if (!profile) return null;
   const script = path.join('install.ps1');
   return `powershell -ExecutionPolicy Bypass -File "${script}" -Mode tgz -PackagePath "${tgz}" -ProfileRoot "${profile}"`;
+}
+
+/* ---------------- 自动更新：查新状态、找 profile、装进去 ---------------- */
+
+/** 上次查新的结果：面板和体检在离线时也能看到“有新版本” */
+export function stateFile() {
+  const dir = process.env.AIDIARY_HOME || path.join(os.homedir(), '.ai-diary');
+  return path.join(dir, 'update-state.json');
+}
+
+export function readState() {
+  try {
+    return JSON.parse(fs.readFileSync(stateFile(), 'utf8'));
+  } catch {
+    return null;
+  }
+}
+
+export function writeState(patch) {
+  try {
+    const f = stateFile();
+    fs.mkdirSync(path.dirname(f), { recursive: true });
+    const out = { ...(readState() || {}), ...patch, at: new Date().toISOString() };
+    fs.writeFileSync(f, JSON.stringify(out, null, 2), 'utf8');
+    return out;
+  } catch {
+    return null;
+  }
+}
+
+/** 扫本机 profile，找出装了本插件的（桌面版默认在 ~/.dsh/profiles/<名字>） */
+export function findProfiles(pluginName = 'dsh-plugin-ai-diary') {
+  const base = path.join(os.homedir(), '.dsh', 'profiles');
+  if (!fs.existsSync(base)) return [];
+  const hits = [];
+  for (const name of fs.readdirSync(base)) {
+    const dir = path.join(base, name);
+    const pkgFile = path.join(dir, 'package.json');
+    if (!fs.existsSync(pkgFile)) continue;
+    try {
+      const j = JSON.parse(fs.readFileSync(pkgFile, 'utf8'));
+      if (j && j.dependencies && j.dependencies[pluginName]) hits.push(dir);
+    } catch {
+      /* 坏 json 跳过 */
+    }
+  }
+  return hits;
+}
+
+/** 找 pnpm：Harness 自带的优先，其次 PATH 上的 */
+export function findPnpm() {
+  const cands = [
+    process.env.DSH_PNPM,
+    'D:/harness/resources/runtime/primary-runtime/dependencies/pnpm/bin/pnpm.cjs',
+    path.join(os.homedir(), 'AppData', 'Local', 'DoubaoWork', 'User Data', 'Default', 'agent_infra', 'pnpm', 'bin', 'pnpm.cjs'),
+  ].filter(Boolean);
+  for (const c of cands) if (fs.existsSync(c)) return c;
+  try {
+    const line = String(execSync(process.platform === 'win32' ? 'where pnpm' : 'which pnpm', { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }))
+      .split(/\r?\n/)[0]
+      .trim();
+    if (line) return line;
+  } catch {}
+  return null;
+}
+
+/**
+ * 把一个 tgz 装进指定 profile：
+ * 备 tgz 到 ~/.dsh/plugin-packages、备份并改写 package.json 依赖、pnpm install、补 ffmpeg。
+ * 会重建 node_modules，Harness 运行中也能装，但要重启才生效。
+ */
+export function installIntoProfile(root, profile, tgz) {
+  const pkgFile = path.join(profile, 'package.json');
+  if (!fs.existsSync(pkgFile)) throw new Error('profile 里没有 package.json：' + profile);
+
+  const pkgDir = path.join(os.homedir(), '.dsh', 'plugin-packages');
+  fs.mkdirSync(pkgDir, { recursive: true });
+  const dest = path.join(pkgDir, path.basename(tgz));
+  if (path.resolve(dest) !== path.resolve(tgz)) fs.copyFileSync(tgz, dest);
+
+  const raw = fs.readFileSync(pkgFile, 'utf8');
+  const backup = pkgFile + '.bak-aidiary-' + new Date().toISOString().replace(/[-:T]/g, '').slice(0, 14);
+  fs.writeFileSync(backup, raw, 'utf8');
+  const j = JSON.parse(raw);
+  j.dependencies = j.dependencies || {};
+  j.dependencies['dsh-plugin-ai-diary'] = 'file:' + dest.split(path.sep).join('/');
+  fs.writeFileSync(pkgFile, JSON.stringify(j, null, 4) + '\n', 'utf8');
+
+  const pnpm = findPnpm();
+  if (!pnpm) throw new Error('没找到 pnpm，无法自动安装（可手动跑 install.ps1）');
+  execFileSync(process.execPath, [pnpm, 'install', '--prefer-offline'], {
+    cwd: profile,
+    stdio: 'pipe',
+    timeout: 900000,
+  });
+
+  // tgz 里不带 ffmpeg（100MB），从当前插件根补一份，保证装完直接能出片
+  const instDir = path.join(profile, 'node_modules', 'dsh-plugin-ai-diary');
+  const vendorSrc = path.join(root, 'vendor');
+  if (fs.existsSync(vendorSrc) && fs.existsSync(instDir)) {
+    const dst = path.join(instDir, 'vendor');
+    fs.mkdirSync(dst, { recursive: true });
+    for (const f of fs.readdirSync(vendorSrc)) {
+      const s = path.join(vendorSrc, f);
+      try {
+        if (fs.statSync(s).isFile()) fs.copyFileSync(s, path.join(dst, f));
+      } catch {}
+    }
+  }
+  return { profile, tgz: dest, backup };
+}
+
+/**
+ * 一键自动更新：查新 → 下载 → 装进 profile。
+ * install=false 只到下载（试运行）；装完必须重启 Harness 才生效。
+ */
+export async function autoUpdate(root, { profile, repo, install = true } = {}) {
+  const c = await checkUpdate(root, { repo });
+  writeState({ ok: c.ok, current: c.current, latest: c.latest, hasUpdate: Boolean(c.hasUpdate), reason: c.reason || null });
+  if (!c.ok) return { ok: false, stage: 'check', ...c };
+  if (!c.hasUpdate) return { ok: true, stage: 'up-to-date', ...c };
+  if (!c.asset) return { ok: false, stage: 'asset', reason: '最新 release 里没有 .tgz 资源', ...c };
+
+  const targets = profile ? [path.resolve(profile)] : findProfiles();
+  if (!targets.length) return { ok: false, stage: 'profile', reason: '没找到装了本插件的 profile（可显式指定）', ...c };
+
+  const d = await downloadUpdate(root, c.asset, { dir: path.join(root, 'dist', 'updates') });
+  if (!install) return { ok: true, stage: 'downloaded', ...c, ...d, targets };
+
+  const results = [];
+  for (const p of targets) {
+    try {
+      const r = installIntoProfile(root, p, d.file);
+      results.push({ ...r, ok: true });
+    } catch (e) {
+      results.push({ profile: p, ok: false, error: String((e && e.message) || e).slice(0, 300) });
+    }
+  }
+  const allOk = results.every((r) => r.ok);
+  writeState({ installedVersion: c.latest, installedAt: new Date().toISOString(), targets: results.map((r) => ({ profile: r.profile, ok: r.ok })) });
+  return { ok: allOk, stage: 'installed', ...c, ...d, targets: results, needsRestart: allOk };
 }

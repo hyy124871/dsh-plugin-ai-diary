@@ -425,6 +425,17 @@ async function main() {
   if (cmd === 'update') {
     const U = await import('../src/update.mjs');
     const action = String(flags.action || 'check');
+    if (action === 'auto') {
+      const r = await U.autoUpdate(path.resolve('.'), { profile: flags.profile, repo: flags.repo });
+      if (r.stage === 'up-to-date') { console.log(`已是最新版 ${r.current}，没有动作`); return; }
+      if (!r.ok) { console.log(`自动更新没走完（${r.stage}）：${r.reason || ''}`); process.exitCode = 4; return; }
+      const okList = (r.targets || []).filter((t) => t.ok).map((t) => t.profile);
+      console.log(`已更新 ${r.current} → ${r.latest}，装到 ${okList.length} 个 profile：`);
+      for (const p of okList) console.log('  · ' + p);
+      for (const t of (r.targets || []).filter((x) => !x.ok)) console.log('  ✗ ' + t.profile + '：' + t.error);
+      console.log('完全退出 Harness 再启动生效');
+      return;
+    }
     const c = await U.checkUpdate(path.resolve('.'), { repo: flags.repo });
     if (!c.ok) { console.log('查新失败：' + c.reason); if (c.hint) console.log(c.hint); process.exitCode = 4; return; }
     console.log(`本地 ${c.current} · 远端 ${c.latest}${c.hasUpdate ? '（有新版）' : '（已最新）'} · ${c.repo}`);

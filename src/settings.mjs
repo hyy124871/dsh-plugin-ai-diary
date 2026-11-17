@@ -29,6 +29,8 @@ export const DEFAULTS = {
   comfy: { base: 'http://127.0.0.1:8188' },
   // 成片规格：逻辑布局固定 720×1280，scale 是超采样倍数 → 1.5 出 1080×1920
   render: { scale: 1.5, fps: 24 },
+  // 自动更新：启动静默查新；autoInstall=true 才会自己下载并装（装完要重启 Harness）
+  update: { autoCheck: true, autoInstall: false },
   publish: { mode: 'client', dryRun: true, autoFill: false, autoSubmit: false, statement: '自制' },
   comments: {
     // api=走评论接口；gui=截图点按钮；hybrid=接口优先，接口挂了才点按钮

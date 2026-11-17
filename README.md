@@ -18,6 +18,23 @@ powershell -ExecutionPolicy Bypass -File .\install.ps1
 
 装完 `dsh --profile <profile> --dump-config` 里能看到 `ai-diary` 就成功了。详见 `INSTALL.md`。
 
+## 0.7.5 更新了什么
+
+**自动更新。** 以前查新要手打命令，现在三条路都通：
+
+```powershell
+node bin/ai-diary.mjs update --action auto     # 一条命令：查新 → 下载 → 装进本机 profile
+node bin/ai-diary.mjs update --action check    # 只查，不动
+node bin/ai-diary.mjs status --online          # 体检里看「版本」那一行
+```
+
+- 插件启动 8 秒后会**静默查一次新版本**（不阻塞、失败不报错），结果写进 `~/.ai-diary/update-state.json`，体检面板离线也能看到上次查到什么。
+- `update --action auto` 会自己扫 `~/.dsh/profiles/*` 里装了本插件的 profile，把 tgz 落到 `~/.dsh/plugin-packages/`、备份 `package.json`、改依赖、跑 pnpm、顺手补 `vendor\ffmpeg.exe`——**装完完全退出 Harness 再启动才生效**。
+- 设置面板多了「自动更新」组：`autoCheck`（默认开，只查）、`autoInstall`（默认关，查到就自动装）。
+- 装失败会回滚到备份的 `package.json`，不会把 profile 弄坏。
+
+**为什么 Harness 插件页不显示「可更新」**：那个页面只读 profile 里 `package.json` 的依赖，不会去 GitHub 查；本插件是本地 tgz 装的、不在 npm，所以永远不会有那个小红点。查新看这里：`ai_diary_update` / `status --online`。
+
 ## 0.7.4 更新了什么
 
 **投稿前先自检成片规格。** `ai_diary_publish` 与 `ai_diary_post` 现在会把视频喂给 ffmpeg 读一遍，直接告诉你 `1080×1920 / 49.8s / 35MB`；不是 9:16、宽度不到 1080、时长太短、超过单文件上限，都会先列出来再继续 —— 别把旧 720p 的片子当新规格投出去，白掉一次推荐。顺带体检面板多了一行「成片规格」。
