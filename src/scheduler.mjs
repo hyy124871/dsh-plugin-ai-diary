@@ -67,11 +67,34 @@ export async function runOnce(root, opts = {}) {
     const topics = await import('./topics.mjs');
     const scriptMod = await import('./script.mjs');
     const engine = await import('./engine.mjs');
+    const studio = await import('./studio.mjs');
 
-    const picked = topics.pickTopics({ count: 1, fresh: true })[0];
-    if (!picked) throw new Error('题材库为空，无法选题');
-    steps.push(`选题 ${picked.id}（${picked.title}）`);
-    onLog(`选题 ${picked.id}`);
+    // 选材：默认走「自主选材」——读最近的评论，让模型自己决定这一集讲什么，
+    // 不再从 data/topics.json 里抽固定题材。studio.freePlan=false 才退回题材库。
+    let picked = null;
+    let planHow = 'template';
+    let planWhy = '';
+    if (settings.studio && settings.studio.freePlan !== false) {
+      if (settings.studio.refreshComments !== false) {
+        try {
+          const fresh = await studio.fetchFromBili(root);
+          if (!fresh.ok) warnings.push('评论没拉到：' + fresh.reason);
+        } catch (e) {
+          warnings.push('刷新评论失败：' + e.message);
+        }
+      }
+      const plan = await studio.planTopic(root, { useModel: true });
+      if (plan.error) warnings.push('自主选材降级为本地拼装：' + plan.error);
+      picked = plan.topic;
+      planHow = plan.how;
+      planWhy = plan.why || '';
+    } else {
+      picked = topics.pickTopics({ count: 1, fresh: true })[0];
+    }
+    if (!picked) throw new Error('没有可用的题材，无法选题');
+    steps.push(`选题 ${picked.id}（${picked.title}）· ${planHow}`);
+    if (planWhy) steps.push('来源：' + planWhy);
+    onLog(`选题 ${picked.id}（${planHow}）`);
 
     script = scriptMod.buildScript(picked, {});
     if (sc.look) script.episode.look = String(sc.look).replace(/^v/, 'v');
@@ -93,6 +116,23 @@ export async function runOnce(root, opts = {}) {
       video = out;
       steps.push(`成片 ${path.basename(out)}（${r.seconds}s / ${r.frames} 帧）`);
       onLog(`成片 ${out}`);
+
+      // 进成片库：面板的「成片管理」靠这份索引数集数
+      if (settings.studio && settings.studio.autoRegister !== false) {
+        try {
+          const film = studio.addFilm(root, {
+            title: script.title,
+            file: out,
+            seconds: r.seconds,
+            character: script.episode.character,
+            createdAt: startedAt.toISOString(),
+            source: opts.reason === 'schedule' ? 'schedule' : 'panel',
+          });
+          steps.push(`已入成片库：第 ${film.episode} 集`);
+        } catch (e) {
+          warnings.push('登记成片失败：' + e.message);
+        }
+      }
     }
 
     // 配音：只在 key 就绪时做，缺 key 不阻断出片
@@ -122,15 +162,16 @@ export async function runOnce(root, opts = {}) {
 
     // 发布：默认只做到「客户端已就绪 + 文案进剪贴板」
     let published = null;
+    let submitted = false;
+    const pubMeta = scriptMod.publishMeta(script);
     if (video && sc.publish) {
       try {
         const pub = await import('./publish.mjs');
-        const meta = scriptMod.publishMeta(script);
         published = await pub.publishViaClient({
           video,
-          title: meta.title,
-          desc: meta.desc,
-          tags: meta.tags,
+          title: pubMeta.title,
+          desc: pubMeta.desc,
+          tags: pubMeta.tags,
           dryRun: settings.publish.dryRun !== false,
         });
         steps.push(published.ok ? '已把成片交给客户端（等你在客户端点投稿）' : '客户端没找到，仅出片');
@@ -143,15 +184,16 @@ export async function runOnce(root, opts = {}) {
           await bili.openCreator(cfg);
           await bili.uploadVideo(cfg, video, cfg.client.creatorWindow);
           await bili.fillForm(cfg, cfg.client.creatorWindow, {
-            title: meta.title,
+            title: pubMeta.title,
             statement: settings.publish.statement || '自制',
-            tags: meta.tags,
+            tags: pubMeta.tags,
           });
           steps.push('已把视频与文案填进投稿页');
 
           if (settings.publish.autoSubmit) {
             const r = await bili.submit(cfg, cfg.client.creatorWindow, true);
             if (r.clicked) {
+              submitted = true;
               steps.push('已点「立即投稿」');
             } else {
               warnings.push('点「立即投稿」没成功：' + (r.error || '按钮没点到'));
@@ -162,6 +204,21 @@ export async function runOnce(root, opts = {}) {
         }
       } catch (e) {
         warnings.push('发布失败：' + e.message);
+      }
+
+      // 记账：面板「发布与评论」靠这条显示最近一次发布时间
+      try {
+        studio.logPublish(root, {
+          title: pubMeta.title,
+          ok: submitted || Boolean(published && published.ok),
+          submitted,
+          dryRun: settings.publish.dryRun !== false,
+          video: video ? path.basename(video) : null,
+          source: opts.reason || 'manual',
+          error: published && !published.ok ? published.message || '客户端不可用' : undefined,
+        });
+      } catch {
+        /* 记账失败不影响出片 */
       }
     }
 
@@ -237,8 +294,93 @@ function record(root, result) {
   }
 }
 
+/** 定时发布：只在 publishAt 那一分钟内为真，一天一次 */
+export function publishDue(settings, now = new Date()) {
+  const sc = settings.schedule || {};
+  const target = minuteOfDay(sc.publishAt);
+  if (target === null) return false;
+  if ((sc.lastPublishRun || '') === todayKey(now)) return false;
+  return now.getHours() * 60 + now.getMinutes() === target;
+}
+
+/**
+ * 把成片库里最新一条 ready 的片子发出去（定时发布和面板「立即发布」共用）。
+ * 发布策略仍服从 settings.publish（dryRun / autoFill / autoSubmit），不自作主张点投稿。
+ */
+export async function publishLatest(root, { reason = 'schedule' } = {}) {
+  const studio = await import('./studio.mjs');
+  const settings = loadSettings(root);
+  applyEnv(settings);
+
+  const doc = studio.listFilms(root, { scan: false });
+  const ready = doc.items
+    .filter((i) => i.status === 'ready' && i.exists && i.file)
+    .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
+  if (!ready.length) return { ok: false, skipped: '成片库里没有待发布的片子' };
+  const film = ready[0];
+  const video = path.resolve(root, film.file);
+  const meta = {
+    title: film.title,
+    desc: `AI 角色日记 第 ${film.episode} 集。画面由本地渲染引擎生成，未使用视频生成模型。`,
+    tags: ['AI', 'AI角色', 'DeepSeek', '竖屏短剧', 'AI日记'],
+  };
+
+  const steps = [];
+  const warnings = [];
+  let published = null;
+  let submitted = false;
+  try {
+    const pub = await import('./publish.mjs');
+    published = await pub.publishViaClient({ video, ...meta, dryRun: settings.publish.dryRun !== false });
+    steps.push(published.ok ? '已把成片交给客户端' : '客户端没找到，未发布');
+    if (published.ok && settings.publish.autoFill) {
+      const bili = await import('./bili.mjs');
+      const cfg = bili.loadBiliConfig(root);
+      await bili.ensureClient(cfg);
+      await bili.openCreator(cfg);
+      await bili.uploadVideo(cfg, video, cfg.client.creatorWindow);
+      await bili.fillForm(cfg, cfg.client.creatorWindow, {
+        title: meta.title,
+        statement: settings.publish.statement || '自制',
+        tags: meta.tags,
+      });
+      steps.push('已把视频与文案填进投稿页');
+      if (settings.publish.autoSubmit) {
+        const r = await bili.submit(cfg, cfg.client.creatorWindow, true);
+        if (r.clicked) {
+          submitted = true;
+          steps.push('已点「立即投稿」');
+        } else {
+          warnings.push('点「立即投稿」没成功：' + (r.error || '按钮没点到'));
+        }
+      }
+    }
+  } catch (e) {
+    warnings.push('发布失败：' + e.message);
+  }
+
+  studio.logPublish(root, {
+    title: meta.title,
+    episode: film.episode,
+    ok: submitted || Boolean(published && published.ok),
+    submitted,
+    dryRun: settings.publish.dryRun !== false,
+    video: film.file,
+    source: reason,
+    error: published && !published.ok ? published.message || '客户端不可用' : undefined,
+  });
+  if (submitted) studio.updateFilm(root, film.id, { status: 'published', publishedAt: new Date().toISOString() });
+  saveSettings(root, { schedule: { lastPublishRun: todayKey(new Date()) } });
+
+  return { ok: true, episode: film.episode, title: meta.title, submitted, steps, warnings };
+}
+
 export function tick(root, onLog) {
   const settings = loadSettings(root);
+  // 定时发布先看：它只碰「成片库」，不重新渲染
+  if (publishDue(settings)) {
+    return publishLatest(root, { reason: 'schedule' }).catch(() => null);
+  }
   if (!due(settings)) return null;
   return runOnce(root, { reason: 'schedule', onLog });
 }
@@ -265,9 +407,11 @@ export function status(root) {
   return {
     enabled: Boolean(s.schedule.enabled),
     dailyAt: s.schedule.dailyAt,
+    publishAt: s.schedule.publishAt || '',
     valid: target !== null,
     running: busy,
     lastRun: s.schedule.lastRun,
+    lastPublishRun: s.schedule.lastPublishRun || null,
     lastResult: s.schedule.lastResult,
     runs: (s.schedule.runs || []).slice(-7),
     publish: s.publish,

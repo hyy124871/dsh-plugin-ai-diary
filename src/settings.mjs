@@ -59,6 +59,8 @@ export const DEFAULTS = {
   schedule: {
     enabled: false,
     dailyAt: '20:30',
+    // 定时发布：到点把「成片库」里 ready 的最新一集发出去；空 = 不单独定时发布
+    publishAt: '',
     count: 1,
     look: '',
     plate: '',
@@ -68,9 +70,21 @@ export const DEFAULTS = {
     publish: true,
     comments: false,
     lastRun: null,
+    lastPublishRun: null,
     lastResult: null,
     runs: [],
   },
+  // 工作室：自主选材 + 文本模型
+  studio: {
+    // 不套 data/topics.json 的固定题材，改读评论区自己选题
+    freePlan: true,
+    // 选材时刷新一次 B 站评论（需要 Cookie）
+    refreshComments: true,
+    // 出片成功后自动进成片库（关掉就只能手工登记）
+    autoRegister: true,
+  },
+  // 写台词用的文本模型：dashscope（千问）/ ark（豆包）/ off（只用本地拼装）
+  text: { provider: 'dashscope', model: 'qwen-plus' },
 };
 
 function isPlain(v) {
@@ -178,5 +192,7 @@ export function publicView(settings) {
       repliedCount: (settings.comments.replied || []).length,
     },
     schedule: { ...settings.schedule, runs: (settings.schedule.runs || []).slice(-7) },
+    studio: settings.studio,
+    text: settings.text,
   };
 }

@@ -1216,6 +1216,8 @@ export function apply(ctx, config = {}) {
   try {
     if (typeof ctx.inject !== 'function') throw new Error('宿主 ctx 没有 inject，跳过设置路由（仅测试桩会这样）');
     ctx.inject(['webServer'], (webCtx) => {
+      // 工作室相关的动作，走同一个 /api/ai-diary/config 路由，省得再挂一条
+      const STUDIO_ACTIONS = new Set(['refreshComments', 'addAsset', 'removeFilm', 'publishNow', 'planPreview']);
       const dispose = webCtx.webServer.register({
         kind: 'exact',
         path: '/api/ai-diary/config',
@@ -1225,7 +1227,11 @@ export function apply(ctx, config = {}) {
             res.end(JSON.stringify(obj));
           };
           try {
-            const [S, U] = await Promise.all([import('./settings.mjs'), import('./update.mjs')]);
+            const [S, U, ST] = await Promise.all([
+              import('./settings.mjs'),
+              import('./update.mjs'),
+              import('./studio.mjs'),
+            ]);
             const snapshot = () => {
               const st = S.loadSettings(ROOT);
               const keys = {};
@@ -1240,9 +1246,18 @@ export function apply(ctx, config = {}) {
                 image: st.image || {},
                 video: st.video || {},
                 tts: st.tts || {},
+                text: st.text || {},
                 keys,
                 state: U.freshState(ROOT),
                 settingsFile: S.settingsPath(ROOT),
+                // 工作室四块：素材库 / 成片库 / 发布与评论 / 自动化
+                studio: {
+                  assets: ST.assetsSummary(ROOT),
+                  films: ST.listFilms(ROOT, { scan: true }),
+                  publish: ST.listPublish().slice(0, 20),
+                  comments: ST.listCommentsCache(),
+                  schedule: ST.scheduleInfo(ROOT),
+                },
               };
             };
             if (req.method === 'GET') return send(200, snapshot());
@@ -1252,6 +1267,33 @@ export function apply(ctx, config = {}) {
             if (body && body.patch) {
               S.saveSettings(ROOT, body.patch);
               return send(200, { ok: true, ...snapshot() });
+            }
+            // 工作室：素材库 / 成片库 / 发布记录 / 评论快照 / 自主选材预览
+            if (body && body.action && STUDIO_ACTIONS.has(body.action)) {
+              if (body.action === 'refreshComments') {
+                const r = await ST.fetchFromBili(ROOT);
+                return send(200, { ok: r.ok, reason: r.reason || null, ...snapshot() });
+              }
+              if (body.action === 'addAsset') {
+                const r = await ST.addAssetAsync(ROOT, { kind: body.kind, name: body.name, source: body.source });
+                return send(200, { ok: true, added: r, ...snapshot() });
+              }
+              if (body.action === 'removeFilm') {
+                const r = ST.removeFilm(ROOT, body.id, { deleteFile: Boolean(body.deleteFile) });
+                return send(200, { ok: true, removed: r, ...snapshot() });
+              }
+              if (body.action === 'publishNow') {
+                const SCH = await import('./scheduler.mjs');
+                S.applyEnv(S.loadSettings(ROOT));
+                const r = await SCH.publishLatest(ROOT, { reason: 'panel' });
+                return send(200, { ok: true, result: r, ...snapshot() });
+              }
+              if (body.action === 'planPreview') {
+                // 只看这一集打算说什么，不渲染、不发布
+                S.applyEnv(S.loadSettings(ROOT));
+                const plan = await ST.planTopic(ROOT, { useModel: body.useModel !== false });
+                return send(200, { ok: true, plan: { how: plan.how, why: plan.why || null, error: plan.error || null, topic: plan.topic }, ...snapshot() });
+              }
             }
             if (body && body.action === 'check') {
               const c = await U.checkUpdate(ROOT);
