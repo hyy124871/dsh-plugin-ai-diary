@@ -1259,8 +1259,21 @@ export function apply(ctx, config = {}) {
               return send(200, { ok: c.ok, ...snapshot(), check: { current: c.current, latest: c.latest, hasUpdate: c.hasUpdate, reason: c.reason || null } });
             }
             if (body && body.action === 'update') {
-              const r = await U.autoUpdate(ROOT, {});
-              return send(200, { ok: r.ok, stage: r.stage, latest: r.latest, needsRestart: Boolean(r.needsRestart), ...snapshot() });
+              // 后台执行：下载 200+MB 再装，几十秒到几分钟，挂在 HTTP 请求上等只会被前端判成 fetch failed。
+              // 调用方改为立即拿到 started，再轮询 snapshot().state 看进度。
+              try {
+                S.applyEnv(S.loadSettings(ROOT));
+              } catch {}
+              U.writeState({ stage: 'starting' });
+              Promise.resolve()
+                .then(() => U.autoUpdate(ROOT, {}))
+                .then((r) => {
+                  U.writeState({ stage: r.stage, ok: r.ok, latest: r.latest, error: r.reason || r.error || undefined });
+                })
+                .catch((e) => {
+                  U.writeState({ stage: 'failed', ok: false, error: String((e && e.message) || e) });
+                });
+              return send(200, { ok: true, started: true, stage: 'starting', ...snapshot() });
             }
             if (body && body.action === 'produce') {
               // 面板上的「立即出片」：立刻返回，后台按当前配置跑一遍完整流程。

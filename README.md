@@ -2,6 +2,20 @@
 
 给 **DeepSeek Harness（dsh）** 用的一个插件：把「AI 角色日记短剧」从选题到发布整条链子做成 18 个工具（16 个 `ai_diary_*` + 2 个 `pc_*`），画面由本地渲染引擎合成，配音与动态底板才可选调用外部接口；投稿、回评论、选素材都能在哔哩哔哩客户端里真机自动完成，不开浏览器。
 
+## v0.8.2：把「更新失败」修掉了，而且原来 7 分钟的更新现在几秒
+
+上一版面板底部那句「操作失败: fetch failed」不是 GitHub 挂了，是**宿主进程里的 fetch 没有代理、也没有超时**：`browser_download_url` 指向 `github.com/.../releases/download/...`，直连被阻断时 undici 只抛一个不带原因的 `fetch failed`；就算连上了，234 MB 走代理要 **427 秒**，前端那个 HTTP 请求早就被 Electron 断掉了。
+
+三件事一起改：
+
+- **代理探测**：`detectProxy()` 先看 `HTTPS_PROXY` / `HTTP_PROXY` / `ALL_PROXY`，没有就依次试 `127.0.0.1:7897/7890/10809/10808/1080/8889/8080`（`net.connect` + 400ms 超时）。本机实测自动认到 `http://127.0.0.1:7897`。
+- **改用 curl 下载**：`curl.exe -sSL --fail --retry 3 --connect-timeout 20 --max-time 1500 -C - -x <proxy>`，失败才退回裸 fetch。`-C -` 是断点续传，中途断了再点更新能接着拉。
+- **更新改后台 + 前端轮询**：`action:'update'` 立刻返回 `{started:true}`，真正下载安装放在 Promise 里跑；`update-state.json` 全程写 `stage`（`starting` / `download` / `download-done` / `install` / `installed` / `failed`），面板每 2 秒读一次，最多看 420 次（约 14 分钟）。不再有一个挂着几百秒的请求。
+
+**顺手解决了慢的根因**：完整包 234 MB 里 **224 MB 是 `assets/` 立绘与底板**（`characters` 160.7 MB、`plates` 45.2 MB、`backgrounds` 17.1 MB），代码只有 0.3 MB。所以现在每次发版多打一个 **`-code.tgz` 代码包**（几百 KB）。升级时如果目标 profile 已经装过本插件，就只下代码包、解包覆盖 `node_modules/dsh-plugin-ai-diary`，素材沿用本地那份——下载从几分钟降到几秒；只有首次安装才用完整包。
+
+> 装完要完全退出 Harness 再启动才生效。面板底部的进度会写明走的是 `code` 还是 `full`。
+
 ## v0.8.1：设置页终于出现了，左侧栏也多了个入口
 
 前几个版本「AI 日记工坊」死活不进设置页。真因不在槽位名、也不在 `dsh.client` 声明，而是**注册少了两样东西**。解开 `app.asar` 直接看官方 `@deepseek-ai/dsh-client-ui-settings-plugins/lib/client.js`，它的写法是：

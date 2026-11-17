@@ -7,6 +7,7 @@
 
 import crypto from 'node:crypto';
 import fs from 'node:fs';
+import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { execFileSync, execSync } from 'node:child_process';
@@ -69,10 +70,34 @@ async function getJSON(url, timeout = 15000) {
   }
 }
 
-/** 用 asset 通配匹配 release 里的 tgz */
+/**
+ * 用 asset 通配匹配 release 里的 tgz，分三类：
+ *   - delta：`*-delta-from-<旧版本>.tgz`，只含那一版以来改动过的文件（通常几十 KB）
+ *   - code：`*-code.tgz`，只含代码不含素材（几百 KB）
+ *   - full：完整包（素材占 224 MB）
+ * 升级时能走 delta 就走 delta，跳版本时退到 code，首次安装才用 full。
+ */
 function matchAsset(assets = [], pattern = DEFAULT_CONFIG.asset) {
   const rx = new RegExp('^' + String(pattern).replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*') + '$', 'i');
-  return assets.find((a) => rx.test(a.name)) || assets.find((a) => /\.tgz$/i.test(a.name)) || null;
+  const shape = (a) => (a ? { name: a.name, size: a.size, url: a.browser_download_url, digest: a.digest || null } : null);
+  const fromOf = (a) => {
+    const m = /-delta-from-([0-9][^/]*?)\.tgz$/i.exec(a.name || '');
+    return m ? m[1] : null;
+  };
+  const isCode = (a) => /-code\.tgz$/i.test(a.name || '');
+  const isDelta = (a) => Boolean(fromOf(a));
+
+  const deltas = assets
+    .filter((a) => isDelta(a) && rx.test(a.name))
+    .map((a) => ({ from: fromOf(a), ...shape(a) }))
+    .sort((x, y) => (compareVersion(y.from, x.from) < 0 ? -1 : 1)); // 越新的 from 越优先
+
+  const full =
+    assets.find((a) => rx.test(a.name) && !isCode(a) && !isDelta(a)) ||
+    assets.find((a) => /\.tgz$/i.test(a.name || '') && !isCode(a) && !isDelta(a)) ||
+    null;
+  const code = assets.find((a) => rx.test(a.name) && isCode(a)) || assets.find((a) => isCode(a)) || null;
+  return { full: shape(full), code: shape(code), deltas };
 }
 
 /**
@@ -94,7 +119,7 @@ export async function checkUpdate(root, { repo } = {}) {
   try {
     const rel = await getJSON(`${API}/repos/${slug}/releases/${cfg.channel === 'latest' ? 'latest' : 'tags/' + cfg.channel}`);
     const latest = String(rel.tag_name || rel.name || '').replace(/^v/, '');
-    const asset = matchAsset(rel.assets, cfg.asset);
+    const picked = matchAsset(rel.assets, cfg.asset);
     return {
       ok: true,
       current,
@@ -102,27 +127,106 @@ export async function checkUpdate(root, { repo } = {}) {
       hasUpdate: compareVersion(latest, current) > 0,
       repo: slug,
       release: { tag: rel.tag_name, name: rel.name, publishedAt: rel.published_at, url: rel.html_url },
-      asset: asset ? { name: asset.name, size: asset.size, url: asset.browser_download_url, digest: asset.digest || null } : null,
+      asset: picked.full,
+      codeAsset: picked.code,
+      deltaAssets: picked.deltas,
     };
   } catch (e) {
     return { ok: false, current, repo: slug, reason: e.message, hint: '确认仓库有 release（不是只有 tag）；私有仓库需 GITHUB_TOKEN。' };
   }
 }
 
-/** 下载 release asset 到 dist/，返回 {file, bytes, sha256} */
-export async function downloadUpdate(root, asset, { dir = path.join('dist', 'updates') } = {}) {
+/**
+ * 探测本机可用代理。宿主进程里的 fetch 不走系统代理，GitHub release 的下载域名
+ * 在直连失败时只会抛一个光秃秃的 `fetch failed`，所以先找一个能用的本地代理端口。
+ * 顺序：显式传入 > 环境变量 > 常见本地端口（Clash / V2Ray / Shadowsocks 默认端口）。
+ */
+export async function detectProxy(explicit) {
+  if (explicit) return String(explicit).replace(/\/+$/, '');
+  const env =
+    process.env.HTTPS_PROXY ||
+    process.env.https_proxy ||
+    process.env.HTTP_PROXY ||
+    process.env.http_proxy ||
+    process.env.ALL_PROXY ||
+    '';
+  if (env && !/^socks/i.test(env)) return env.replace(/\/+$/, '');
+  for (const port of [7897, 7890, 10809, 10808, 1080, 8889, 8080]) {
+    const alive = await new Promise((resolve) => {
+      const sock = net.connect({ host: '127.0.0.1', port });
+      let settled = false;
+      const finish = (v) => {
+        if (settled) return;
+        settled = true;
+        try {
+          sock.destroy();
+        } catch {}
+        resolve(v);
+      };
+      sock.setTimeout(400);
+      sock.on('connect', () => finish(true));
+      sock.on('timeout', () => finish(false));
+      sock.on('error', () => finish(false));
+    });
+    if (alive) return `http://127.0.0.1:${port}`;
+  }
+  return '';
+}
+
+/**
+ * 下载到文件。先走 curl（能挂代理、自带重试），失败再退回 fetch。
+ * curl 在有代理时同样带上 Authorization，私有仓库也能下。
+ */
+async function downloadToFile(url, outFile, proxy) {
+  const token = process.env.GITHUB_TOKEN || process.env.GH_TOKEN;
+  const px = await detectProxy(proxy);
+  const curl = process.platform === 'win32' ? 'curl.exe' : 'curl';
+  try {
+    const args = [
+      '-sSL',
+      '--fail',
+      '--retry',
+      '3',
+      '--retry-delay',
+      '2',
+      '--connect-timeout',
+      '20',
+      '--max-time',
+      '1500',
+      // 断点续传：一次 200+MB 走代理要好几分钟，中途断了再点更新能从断点接着拉
+      '-C',
+      '-',
+      '-o',
+      outFile,
+    ];
+    if (px) args.push('-x', px);
+    if (token) args.push('-H', `Authorization: Bearer ${token}`);
+    args.push(url);
+    execFileSync(curl, args, { stdio: ['ignore', 'ignore', 'pipe'], timeout: 1550000 });
+    const st = fs.statSync(outFile);
+    if (st.size > 1024) return px ? `curl via ${px}` : 'curl direct';
+  } catch {}
+  try {
+    fs.rmSync(outFile, { force: true });
+  } catch {}
+  const res = await fetch(url, { headers: headers(), redirect: 'follow' });
+  if (!res.ok) throw new Error(`下载失败 HTTP ${res.status}（直连与代理都没走通，先在设置里填 GitHub Token 或开代理）`);
+  fs.writeFileSync(outFile, Buffer.from(await res.arrayBuffer()));
+  return 'fetch';
+}
+
+/** 下载 release asset 到 dist/，返回 {file, bytes, sha256, via} */
+export async function downloadUpdate(root, asset, { dir = path.join('dist', 'updates'), proxy } = {}) {
   if (!asset?.url) throw new Error('没有可下载的 asset');
   const outDir = path.isAbsolute(dir) ? dir : path.join(root, dir);
   fs.mkdirSync(outDir, { recursive: true });
   const outFile = path.join(outDir, asset.name);
-  const res = await fetch(asset.url, { headers: headers(), redirect: 'follow' });
-  if (!res.ok) throw new Error(`下载失败 HTTP ${res.status}`);
-  const buf = Buffer.from(await res.arrayBuffer());
-  fs.writeFileSync(outFile, buf);
+  const via = await downloadToFile(asset.url, outFile, proxy);
+  const buf = fs.readFileSync(outFile);
   const sha256 = crypto.createHash('sha256').update(buf).digest('hex');
   let digestOk = null;
   if (asset.digest && /^sha256:/i.test(asset.digest)) digestOk = asset.digest.split(':')[1].toLowerCase() === sha256;
-  return { file: outFile, bytes: buf.length, sha256, digestOk };
+  return { file: outFile, bytes: buf.length, sha256, digestOk, via };
 }
 
 /** 组装安装命令（不自作主张执行；apply 时由调用方带 profile 才跑） */
@@ -243,6 +347,29 @@ export function installIntoProfile(root, profile, tgz) {
 }
 
 /**
+ * 代码包覆盖安装：把代码包解到既有的 node_modules 目录，素材保持不动。
+ * 只适用于「这个 profile 已经装过本插件」的环境；没装过就退回完整包。
+ */
+export function installCodeIntoProfile(profile, tgz) {
+  const instDir = path.join(profile, 'node_modules', 'dsh-plugin-ai-diary');
+  const pkgFile = path.join(instDir, 'package.json');
+  if (!fs.existsSync(pkgFile)) throw new Error('这个 profile 没装过本插件，需要完整包：' + profile);
+  let from = null;
+  try {
+    from = JSON.parse(fs.readFileSync(pkgFile, 'utf8')).version || null;
+  } catch {}
+
+  fs.mkdirSync(instDir, { recursive: true });
+  execFileSync('tar', ['-xzf', tgz, '-C', instDir, '--strip-components=1'], { stdio: 'pipe', timeout: 120000 });
+
+  let to = null;
+  try {
+    to = JSON.parse(fs.readFileSync(pkgFile, 'utf8')).version || null;
+  } catch {}
+  return { profile, mode: 'code', from, to };
+}
+
+/**
  * 一键自动更新：查新 → 下载 → 装进 profile。
  * install=false 只到下载（试运行）；装完必须重启 Harness 才生效。
  */
@@ -251,30 +378,60 @@ export async function autoUpdate(root, { profile, repo, install = true } = {}) {
   writeState({ ok: c.ok, current: c.current, latest: c.latest, hasUpdate: Boolean(c.hasUpdate), reason: c.reason || null });
   if (!c.ok) return { ok: false, stage: 'check', ...c };
   if (!c.hasUpdate) return { ok: true, stage: 'up-to-date', ...c };
-  if (!c.asset) return { ok: false, stage: 'asset', reason: '最新 release 里没有 .tgz 资源', ...c };
+  if (!c.asset && !c.codeAsset && !(c.deltaAssets || []).length)
+    return { ok: false, stage: 'asset', reason: '最新 release 里没有 .tgz 资源', ...c };
 
   const targets = profile ? [path.resolve(profile)] : findProfiles();
   if (!targets.length) return { ok: false, stage: 'profile', reason: '没找到装了本插件的 profile（可显式指定）', ...c };
 
-  const d = await downloadUpdate(root, c.asset, { dir: path.join(root, 'dist', 'updates') });
-  if (!install) return { ok: true, stage: 'downloaded', ...c, ...d, targets };
+  // 三级取包：差分包（本地版本正好等于 delta.from）> 代码包（跳版本）> 完整包（首次安装）
+  const installedAll = targets.every((p) => fs.existsSync(path.join(p, 'node_modules', 'dsh-plugin-ai-diary', 'package.json')));
+  const delta = (c.deltaAssets || []).find((d) => String(d.from) === String(c.current));
+  let mode = 'full';
+  let asset = c.asset;
+  if (installedAll && delta) {
+    mode = 'delta';
+    asset = delta;
+  } else if (installedAll && c.codeAsset) {
+    mode = 'code';
+    asset = c.codeAsset;
+  }
+  if (!asset) return { ok: false, stage: 'asset', reason: '没有可下载的 asset', ...c };
 
+  // 进度写盘：面板轮询 update-state.json 就能看到走到哪一步，不必挂着一个长请求
+  writeState({ stage: 'download', mode, latest: c.latest, current: c.current, asset: asset.name });
+  let d;
+  try {
+    d = await downloadUpdate(root, asset, { dir: path.join(root, 'dist', 'updates') });
+  } catch (e) {
+    const reason = String((e && e.message) || e);
+    writeState({ stage: 'failed', ok: false, error: reason, lastAttemptAt: new Date().toISOString(), lastAttemptOk: false });
+    return { ok: false, stage: 'download', reason, ...c };
+  }
+  writeState({ stage: 'download-done', bytes: d.bytes, via: d.via, mode });
+  if (!install) return { ok: true, stage: 'downloaded', mode, ...c, ...d, targets };
+
+  writeState({ stage: 'install', bytes: d.bytes, via: d.via, mode });
   const results = [];
   for (const p of targets) {
     try {
-      const r = installIntoProfile(root, p, d.file);
-      results.push({ ...r, ok: true });
+      // delta 与 code 都是 package/ 结构、只覆盖部分文件，走同一个覆盖安装
+      const r = mode === 'full' ? installIntoProfile(root, p, d.file) : installCodeIntoProfile(p, d.file);
+      results.push({ ...r, ok: true, mode });
     } catch (e) {
       results.push({ profile: p, ok: false, error: String((e && e.message) || e).slice(0, 300) });
     }
   }
   const allOk = results.every((r) => r.ok);
   writeState({
+    stage: allOk ? 'installed' : 'install-failed',
+    mode,
+    error: allOk ? undefined : String(results.find((r) => !r.ok)?.error || '安装失败').slice(0, 300),
     installedVersion: allOk ? c.latest : undefined,
     installedAt: allOk ? new Date().toISOString() : undefined,
     lastAttemptAt: new Date().toISOString(),
     lastAttemptOk: allOk,
     targets: results.map((r) => ({ profile: r.profile, ok: r.ok })),
   });
-  return { ok: allOk, stage: 'installed', ...c, ...d, targets: results, needsRestart: allOk };
+  return { ok: allOk, stage: 'installed', mode, ...c, ...d, targets: results, needsRestart: allOk };
 }
