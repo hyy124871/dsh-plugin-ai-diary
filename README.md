@@ -12,9 +12,25 @@
 - **改用 curl 下载**：`curl.exe -sSL --fail --retry 3 --connect-timeout 20 --max-time 1500 -C - -x <proxy>`，失败才退回裸 fetch。`-C -` 是断点续传，中途断了再点更新能接着拉。
 - **更新改后台 + 前端轮询**：`action:'update'` 立刻返回 `{started:true}`，真正下载安装放在 Promise 里跑；`update-state.json` 全程写 `stage`（`starting` / `download` / `download-done` / `install` / `installed` / `failed`），面板每 2 秒读一次，最多看 420 次（约 14 分钟）。不再有一个挂着几百秒的请求。
 
-**顺手解决了慢的根因**：完整包 234 MB 里 **224 MB 是 `assets/` 立绘与底板**（`characters` 160.7 MB、`plates` 45.2 MB、`backgrounds` 17.1 MB），代码只有 0.3 MB。所以现在每次发版多打一个 **`-code.tgz` 代码包**（几百 KB）。升级时如果目标 profile 已经装过本插件，就只下代码包、解包覆盖 `node_modules/dsh-plugin-ai-diary`，素材沿用本地那份——下载从几分钟降到几秒；只有首次安装才用完整包。
+**顺手解决了慢的根因**：完整包 234 MB 里 **224 MB 是 `assets/` 立绘与底板**（`characters` 160.7 MB、`plates` 45.2 MB、`backgrounds` 17.1 MB），代码只有 0.3 MB。所以现在每次发版出三个包，更新时按优先级自动挑：
 
-> 装完要完全退出 Harness 再启动才生效。面板底部的进度会写明走的是 `code` 还是 `full`。
+| 包 | 内容 | 体积 | 什么时候用 |
+|---|---|---|---|
+| `-delta-from-<旧版本>.tgz` | 打版脚本用 `git diff` 自动识别改动文件，只装那几个 | **60 KB** | 本地版本正好等于 delta 的起始版本 |
+| `-code.tgz` | 全部代码、配置、文档、图标，不带素材 | 212 KB | 跳版本升级（素材本地已有） |
+| 完整包 | 全部 | 234 MB | 首次安装 |
+
+选包逻辑在 `autoUpdate` 里：`installedAll && delta.from === current` → delta；否则 `installedAll` → code；否则 full。`update-state.json` 的 `mode` 字段写明走的哪一档，面板底部会显示「增量包 / 代码包 / 完整包」。
+
+打版一共三条命令：
+
+```powershell
+node work\pack-delta.mjs v0.8.1   # 差分包：自动 git diff 上一版
+node work\pack-code.mjs           # 代码包：全量代码，不带 assets 素材
+npm pack --pack-destination dist  # 完整包：首次安装用
+```
+
+> 装完要完全退出 Harness 再启动才生效。面板的进度会写明走的是 `delta` / `code` / `full`。
 
 ## v0.8.1：设置页终于出现了，左侧栏也多了个入口
 
