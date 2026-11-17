@@ -273,6 +273,10 @@ export function freshState(root, { maxAgeMs = 6 * 3600 * 1000 } = {}) {
   const s = readState();
   if (!s) return null;
   const local = readLocalVersion(root);
+  // 刚装完就是最新：查新那一刻的 current 一定比本地旧，别拿它当过期依据
+  if (s.installedVersion && s.installedVersion === local && !s.error) {
+    return { ...s, stale: false, current: local, latest: local, hasUpdate: false };
+  }
   const at = Date.parse(s.at || '') || 0;
   const age = at ? Date.now() - at : Infinity;
   const mismatched = Boolean(s.current) && s.current !== local;
@@ -451,6 +455,7 @@ export async function autoUpdate(root, { profile, repo, install = true } = {}) {
   writeState({
     stage: allOk ? 'installed' : 'install-failed',
     mode,
+    current: allOk ? c.latest : c.current,
     error: allOk ? undefined : String(results.find((r) => !r.ok)?.error || '安装失败').slice(0, 300),
     installedVersion: allOk ? c.latest : undefined,
     installedAt: allOk ? new Date().toISOString() : undefined,
