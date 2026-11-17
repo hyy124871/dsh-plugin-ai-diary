@@ -66,7 +66,7 @@ export const Config = Schema
     }).description('成片规格'),
     update: Schema.object({
       autoCheck: Schema.boolean().description('启动时静默查一次新版本，结果写进体检面板（默认开）'),
-      autoInstall: Schema.boolean().description('查到新版本就自动下载并安装到本机 profile（默认关；装完要重启 Harness 才生效）'),
+      autoInstall: Schema.boolean().description('查到新版本就自动下载并安装到本机 profile（默认开；装完要重启 Harness 才生效）'),
     }).description('自动更新'),
     publish: Schema.object({
       dryRun: Schema.boolean().description('预演：只准备文案与客户端，不真的投稿'),
@@ -1037,6 +1037,14 @@ export function apply(ctx, config = {}) {
           const [U, S] = await Promise.all([import('./update.mjs'), import('./settings.mjs')]);
           const opt = S.loadSettings(ROOT).update || {};
           if (opt.autoCheck === false) return;
+          // 上次自动装失败过就先冷却 6 小时，避免每次启动都拿坏包重试
+          if (opt.autoInstall) {
+            const st = U.readState() || {};
+            if (st.lastAttemptOk === false && st.lastAttemptAt && Date.now() - new Date(st.lastAttemptAt).getTime() < 6 * 3600 * 1000) {
+              console.log('[ai-diary] 上次自动装没成功，6 小时内不再重试（可手动 update --action auto）');
+              return;
+            }
+          }
           timer = setTimeout(() => {
             void (async () => {
               try {

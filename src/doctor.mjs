@@ -233,11 +233,34 @@ export async function runDoctor(root = ROOT, { online = false } = {}) {
     try {
       const U = await import('./update.mjs');
       const r = await U.checkUpdate(root);
+      const has = Boolean(r && r.hasUpdate);
       checks.push(
-        row('在线', '版本', 'ok', r && r.hasUpdate ? `有新版本 ${r.latest}` : `已是最新（${U.readLocalVersion(root)}）`, r && r.hasUpdate ? 'node bin/ai-diary.mjs update --action check' : ''),
+        row(
+          '在线',
+          '版本',
+          has ? 'warn' : 'ok',
+          has ? `有新版本 ${r.latest}（本地 ${r.current}）` : `已是最新（${U.readLocalVersion(root)}）`,
+          has ? '更新：node bin/ai-diary.mjs update --action auto（或插件设置里打开 autoInstall，重启自动装）' : '',
+        ),
       );
+      if (has && settings.update?.autoInstall !== false) checks.push(row('在线', '自动更新', 'ok', '已开：下次启动会自动装', '装完需完全退出 Harness 再启动'));
     } catch (e) {
-      checks.push(row('在线', '版本', 'warn', '查不到', String(e.message).slice(0, 80)));
+      // 离线兜底：用上次查新结果（~/.ai-diary/update-state.json），总比"查不到"有用
+      const U = await import('./update.mjs');
+      const st = U.readState();
+      if (st && st.latest) {
+        checks.push(
+          row(
+            '在线',
+            '版本',
+            st.hasUpdate ? 'warn' : 'skip',
+            `${st.hasUpdate ? `上次查到有新版 ${st.latest}` : `上次查到已是最新（${st.latest}）`} · 现在联不上网`,
+            st.hasUpdate ? '开网后跑 update --action auto' : '',
+          ),
+        );
+      } else {
+        checks.push(row('在线', '版本', 'warn', '查不到', String(e.message).slice(0, 80)));
+      }
     }
   }
 

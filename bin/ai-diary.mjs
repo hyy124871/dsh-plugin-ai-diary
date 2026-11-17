@@ -51,6 +51,8 @@ async function main() {
   motion                                         列出已收进插件的角色短片
   motion   --action import --from "X:\豆包 (2).mp4" --character deepseek [--name loop]
   motion   --action plate --character deepseek [--name ds-motion] [--seconds 8]
+  update   --action check|download|apply|auto [--profile <dir>] [--repo owner/name]
+           auto = 查新→下载→自动装进本机 profile（省略 --profile 就自己扫 ~/.dsh/profiles）
 
 模板：classic 星夜日记 / report 评测报告 / dossier 机密档案 / terminal 数据终端 / audit 听证记录 / specimen 标本观察
 动态底板：assets/plates/<模板>/ 帧目录存在时优先当背景层；Seedance / H3 成片用 plate --from 转一次即可接管

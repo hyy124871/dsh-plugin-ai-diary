@@ -269,6 +269,12 @@ export async function autoUpdate(root, { profile, repo, install = true } = {}) {
     }
   }
   const allOk = results.every((r) => r.ok);
-  writeState({ installedVersion: c.latest, installedAt: new Date().toISOString(), targets: results.map((r) => ({ profile: r.profile, ok: r.ok })) });
+  writeState({
+    installedVersion: allOk ? c.latest : undefined,
+    installedAt: allOk ? new Date().toISOString() : undefined,
+    lastAttemptAt: new Date().toISOString(),
+    lastAttemptOk: allOk,
+    targets: results.map((r) => ({ profile: r.profile, ok: r.ok })),
+  });
   return { ok: allOk, stage: 'installed', ...c, ...d, targets: results, needsRestart: allOk };
 }

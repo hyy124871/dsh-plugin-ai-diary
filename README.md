@@ -18,6 +18,16 @@ powershell -ExecutionPolicy Bypass -File .\install.ps1
 
 装完 `dsh --profile <profile> --dump-config` 里能看到 `ai-diary` 就成功了。详见 `INSTALL.md`。
 
+## 0.7.6 更新了什么
+
+**默认全自动。** 装上 0.7.6 之后不用再管更新这件事：
+
+- `autoInstall` 默认改成 **true** —— 启动 8 秒后查到新版本就自己下载、自己装进本机 profile，你下次重启 Harness 就是新版。
+- **失败冷却 6 小时**：自动装要是没成功（网络断、pnpm 报错），不会每次启动都拿坏包重试，只在 `update-state.json` 记一笔，6 小时后再说。
+- 体检「版本」这一行现在**断网也能用**：联网时实时比对，断网时回落到上次查新结果，告诉你「上次查到有新版 X」。
+- 有新版且 `autoInstall` 开着时，体检会多一行「自动更新：已开，下次启动会自动装」。
+- CLI 帮助补上了 `update --action auto` 的说明。
+
 ## 0.7.5 更新了什么
 
 **自动更新。** 以前查新要手打命令，现在三条路都通：
