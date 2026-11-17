@@ -12,29 +12,24 @@ whenToUse: 用户要做 AI 角色日记/竖屏短剧、批量出片、给片子�
 
 1. `ai_diary_topics` —— 选题（内置原创题材库，默认避开做过的）
 2. `ai_diary_plan` —— 题材编译成剧本 JSON（每镜时长、分镜时间点、片长都算好）
-3. `ai_diary_render` —— 剧本 JSON 渲染成 9:16 MP4（Skia 逐帧 + ffmpeg），可 `--look` 换立绘模样
+3. `ai_diary_render` —— 剧本 JSON 渲染成 9:16 MP4（Skia 逐帧 + ffmpeg），默认出 1080×1920（逻辑布局 720×1280、1.5× 超采样，字号与坐标不用改）；`--scale 1` 回 720p 换速度，`--scale 2` 出 1440×2560；可 `--look` 换立绘模样
 4. `ai_diary_voice` —— 逐镜配音：小米 MiMo / 千问 Qwen-TTS / MiniMax T2A 三选一，按镜头时长对齐后混流
 5. `ai_diary_hailuo` —— MiniMax H3 生成 4–15 秒动态底板视频（异步任务，默认 dry_run 不扣费）
 6. `ai_diary_assets` —— 素材自检：缺哪些立绘/背景、给补图提示词
 7. `ai_diary_pick` —— 自动选素材：按情绪挑立绘、按模板挑底板与背景，并给封面候选
-8. `ai_diary_post` —— 真投稿编排：唤起客户端 → 创作中心 → 点上传 → 原生文件框粘路径 → 等上传完成 → 填封面/标题/声明/分区/标签/简介 → 停在「立即投稿」前给你截图
-9. `ai_diary_comments` —— 评论管理 + 自动回复：`action=calibrate` 打开「互动管理 → 评论管理」并回传截图与 OCR；`action=scan` 列评论；`action=auto` 按规则回复（`send` 默认 false 只出计划，`send:true` 才发）；`action=watch` 挂一段时间反复扫。每条只回一次（文本指纹去重），单轮默认最多 3 条、间隔 ≥8 秒
+8. `ai_diary_post` —— 真投稿编排：先自检成片规格（分辨率/竖屏比例/时长/体积，不合格先提醒）→ 唤起客户端 → 创作中心 → 点上传 → 原生文件框粘路径 → 等上传完成 → 填封面/标题/声明/分区/标签/简介 → 停在「立即投稿」前给你截图
+9. `ai_diary_comments` —— 评论自动回复：`action=auth` 只验 Cookie；`action=auto` 按规则回复（`mode=api` 走评论接口 / `gui` 截图点按钮 / `hybrid` 默认，接口失败才回退一次；`send` 默认 false 只出计划）；`action=watch` 挂一段时间反复扫；`scan` / `calibrate` 是 GUI 侧读页面。规则写法三选一：子串 `"催更"`、关键词数组 `["催更","更新"]`、正则 `"/感谢|谢谢/"`，`"*"` 兜底；规则可带 `replies` 文案池，回复时避开最近 20 条用过的句子；`recent_hours`（默认 72）只回这段时间内的新评论，`0`=不限。接口路线需要 Cookie：设置里 `keys.bili` 填 `SESSDATA=…; bili_jct=…; buvid3=…`（或环境变量 `BILI_COOKIE`）。每条只回一次（接口按 rpid、GUI 按文本指纹，账本记 499 条），平台约 30 秒 1 条，单轮默认最多 3 条
 10. `pc_see` / `pc_act` —— 通用电脑操控：文本优先观察窗口（`windows`/`tree`/`find`/`text`/`shot`），动作串一次多步（`focus`/`click`/`move`/`scroll`/`key`/`paste`/`wait` 等）
 11. `ai_diary_publish` —— 轻量发布辅助：文案进剪贴板 + 带视频拉起客户端（默认 dry_run，不点投稿）
 12. `ai_diary_local` —— 本机 ComfyUI 出图：探活 / 列底模 / 按提示词生成，不耗生成额度
 13. `ai_diary_motion` —— 角色动态素材：收短片 / 列清单 / 转 9:16 动态底板
 14. `ai_diary_update` —— 联网查 GitHub Releases、下载、按 profile 安装（不会静默装）
-15. `ai_diary_settings` —— 读写插件设置：API Key、默认配音服务商与音色、ComfyUI 地址、发布策略
+15. `ai_diary_settings` —— 读写插件设置：`status` 一屏体检（环境/账号/发布/内容/定时）；`get` 看配置；`set` 改 API Key、配音服务商与音色、ComfyUI 地址、发布策略
 16. `ai_diary_schedule` —— 定时自动出片：`status` / `enable` / `disable` / `set` / `run-now`
 
 设置面板与配置文件：Harness 官方设置面板读插件导出的 `Config`（schemastery）；配置落在 `~/.ai-diary/settings.json`，环境变量（`MIMO_API_KEY` / `DASHSCOPE_API_KEY` / `MINIMAX_API_KEY` / `GITHUB_TOKEN`）优先。定时默认关闭，一天只跑一次，到点自动出片并把文案填进客户端，仍停在「立即投稿」前。
-12. `ai_diary_local` —— 本机 ComfyUI 出图：探活 / 列底模 / 按提示词生成，不耗生成额度
-13. `ai_diary_motion` —— 角色动态素材：收短片 / 列清单 / 转 9:16 动态底板
-14. `ai_diary_update` —— 联网查 GitHub Releases、下载、按 profile 安装（不会静默装）
-15. `ai_diary_settings` —— 读写插件设置：API Key、默认配音服务商与音色、ComfyUI 地址、发布策略
-16. `ai_diary_schedule` —— 定时自动出片：`status` / `enable` / `disable` / `set` / `run-now`
 
-设置面板与配置文件：Harness 官方设置面板读插件导出的 `Config`（schemastery）；配置落在 `~/.ai-diary/settings.json`，环境变量（`MIMO_API_KEY` / `DASHSCOPE_API_KEY` / `MINIMAX_API_KEY` / `GITHUB_TOKEN`）优先。定时默认关闭，一天只跑一次，到点自动出片并把文案填进客户端，仍停在「立即投稿」前。
+体检：拿不准「到底哪没配好」就调 `ai_diary_settings { action: "status" }`（只读，不发送任何操作），它按 环境 / 账号 / 发布 / 内容 / 定时 五组给状态与下一步命令；加 `online: true` 顺带验 B 站登录态（回昵称与 UID）、ComfyUI 与版本。命令行等价于 `node bin/ai-diary.mjs status [--online] [--json]`。
 
 ## 标准流程
 
@@ -176,7 +171,7 @@ node bin/ai-diary.mjs plate --from out/h3-xxx.mp4 --name audit --seconds 8
 - 客户端 UI 改版时改 `config/bili.json` 里的比例锚点（`railUploadIcon`、`uploadVideoButton`、`titleField`、`tagsInput`、`coverRecommended1`、`submitButton` 等），不用动代码；锚点是相对截图的 0–1 比例，程序按截图缩放换算出真实屏幕坐标。
 - 底线：`dry_run` / `confirm:false` 时绝不替你点「立即投稿」「发布」；投稿是对外不可逆动作。
 - 备用：`ai_diary_publish` 只做「文案进剪贴板 + 带视频拉起客户端」；`mode:"browser"` 的 Chrome CDP 路径保留但默认不用（你明确要求用客户端）。
-- 评论：`ai_diary_comments` 走本机 OCR 认界面文字来定位，默认只扫描出计划；`send:true` 才真发，且每条只回一次。点「回复」前会先把那一行放大认字，认不到就跳过；遇到「删除提醒」弹窗立刻取消并终止。真机上「点开回复框 → 粘贴 → 点发表回复」最后一步尚未跑通，会在填入前停下提示。
+- 评论：主路线是 `ai_diary_comments --action auto --mode api`，直接走 B 站评论接口（读稿件/读评论带 WBI 签名，发回复带 `root`/`parent` 与 `csrf=bili_jct`），不截图、不点按钮，成功与否看返回 `code`。需要先配 Cookie（`keys.bili` 或 `BILI_COOKIE`），并先用 `action=auth` 验证。**配 Cookie 不用开浏览器**：`node scripts/qr-login.mjs --write` 出登录二维码，手机哔哩哔哩 App 扫码点确认后自动写进设置（走 B 站网页扫码登录的同一组接口，客户端库里那条匿名 `buvid3` 会顺手带上）。`mode=gui` 是原来的截图 + OCR 路线；`mode=hybrid`（默认）只在接口报 `-101/-412/25004` 时回退一次。删评论弹窗、行定位这些 GUI 细节只在 `gui` 模式才涉及。
 
 ## 成本
 

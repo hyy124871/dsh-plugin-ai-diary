@@ -30,9 +30,11 @@ async function main() {
     console.log(`AI 日记工坊（dsh 插件）命令行
 
   topics   --count 3 [--character deepseek] [--seed 42] [--template report]
+  status   [--online] [--json] [--no-color]      一屏体检：环境 / 密钥 / 账号 / 内容 / 定时（--online 顺带验登录态与联网）
+  settings --action status|get|reset|set [--mimo k] [--qwen k] [--minimax k] [--bili "SESSDATA=…"] [--provider qwen] [--voice 冰糖]
   plan     [--topic day7-balance] [--character gpt] [--template dossier] [--out out/x.json]
   plan     --all [--template audit]              题材库一次性编译成剧本（省对话轮次）
-  render   --script out/day7-balance.json [--out out/x.mp4] [--template terminal] [--plate report] [--look v2] [--voice 冰糖] [--png] [--fps 24]
+  render   --script out/day7-balance.json [--out out/x.mp4] [--template terminal] [--plate report] [--look v2] [--voice 冰糖] [--png] [--scale 1.5=1080p] [--fps 24]
   voice    --check | --script out/x.json [--provider xiaomi|qwen|minimax] [--mode design] [--voice Cherry] [--mux out/x.mp4]
   video    --prompt "..." [--from out/x.png] [--last out/x2.png] [--duration 8] [--resolution 768P] [--model MiniMax-H3] [--out out/x.mp4] [--status task_id]
   template                                      列出全部版面模板
@@ -57,6 +59,15 @@ async function main() {
 视频：MiniMax H3 异步接口（--from 首帧 → 轮询 → 自动下载），没 key 时 video --dry-run 只打印将提交的 body
 
 产物默认落在插件目录的 out/ 下。`);
+    return;
+  }
+
+  if (cmd === 'status') {
+    const { runDoctor, renderDoctor } = await import('../src/doctor.mjs');
+    const rep = await runDoctor(undefined, { online: Boolean(flags.online) });
+    if (flags.json) console.log(JSON.stringify(rep, null, 2));
+    else console.log(renderDoctor(rep, { color: !flags['no-color'] }));
+    process.exitCode = rep.ok ? 0 : 1;
     return;
   }
 
@@ -101,6 +112,8 @@ async function main() {
     if (!flags.script) throw new Error('缺少 --script');
     const { loadScript } = await import('../src/script.mjs');
     const { renderEpisode } = await import('../src/engine.mjs');
+    const { loadSettings } = await import('../src/settings.mjs');
+    const st = loadSettings(path.resolve('.'));
     const s = loadScript(flags.script);
     if (flags.look) s.episode.look = String(flags.look); // v2 / v3：换一套立绘模样
     const out = flags.out || path.join('out', `${s.id}.mp4`);
@@ -120,14 +133,15 @@ async function main() {
     const r = await renderEpisode(s, {
       out: path.resolve(out),
       pngDir: png ? path.resolve('out', `${s.id}-frames`) : null,
-      fps: num(flags.fps),
+      fps: num(flags.fps) || Number(st.render?.fps) || undefined,
+      scale: num(flags.scale) || Number(st.render?.scale) || undefined, // 默认 1.5 → 1080×1920；1 → 720p；2 → 1440×2560
       maxSeconds: num(flags.preview),
       template: flags.template,
       plate: platePath,
       onProgress: p => process.stdout.write(`\r渲染 ${(p * 100).toFixed(0)}%  `),
     });
     process.stdout.write('\n');
-    console.log(png ? `已导出 ${r.frames} 帧 PNG → out/${s.id}-frames` : `完成 ${r.seconds}s / ${r.frames} 帧 → ${out}（${((Date.now() - t0) / 1000).toFixed(1)}s）`);
+    console.log(png ? `已导出 ${r.frames} 帧 PNG（${r.width}×${r.height}）→ out/${s.id}-frames` : `完成 ${r.seconds}s / ${r.frames} 帧 / ${r.width}×${r.height} → ${out}（${((Date.now() - t0) / 1000).toFixed(1)}s）`);
 
     // --voice：渲染完顺手配音并混流（小米 MiMo TTS，需要 MIMO_API_KEY）
     if (flags.voice && !png) {
@@ -237,8 +251,8 @@ async function main() {
       from,
       dir,
       ffmpeg: findFfmpeg(),
-      width: num(flags.width) || 720,
-      height: num(flags.height) || 1280,
+      width: num(flags.width) || 1080,
+      height: num(flags.height) || 1920,
       seconds: num(flags.seconds) || 8,
       fps: num(flags.fps) || 12,
     });
@@ -314,14 +328,24 @@ async function main() {
       console.log('样例 ' + JSON.stringify(r.sample.slice(0, 6), null, 2));
       return;
     }
+    if (action === 'auth') {
+      const r = await C.checkAuth(path.resolve('.'));
+      console.log(r.ok ? `Cookie 可用：${r.uname}（mid ${r.mid}），读到 ${r.videos.length} 个稿件` : `Cookie 不可用：${r.error}`);
+      console.log(JSON.stringify(r, null, 2));
+      return;
+    }
     if (action === 'auto') {
       const r = await C.autoReply(path.resolve('.'), {
         send: flags.send === 'true',
         maxPerRun: flags.max ? Number(flags.max) : undefined,
         fallback: flags.fallback,
+        mode: flags.mode,
       });
-      console.log(r.send ? `已发送 ${r.sent} 条` : `预演：计划 ${r.planned} 条`);
-      console.log(JSON.stringify(r.plan || r.results, null, 2));
+      const via = r.via === 'api' ? '接口' : r.via === 'hybrid' ? '接口+回退' : '点按钮';
+      if (r.ok === false) console.log('没发成：' + r.error);
+      else console.log(r.send ? `已发送 ${r.sent} 条（走${via}）` : `预演：计划 ${r.planned} 条（走${via}）`);
+      if (r.note) console.log(r.note);
+      console.log(JSON.stringify(r.plan || r.results || r, null, 2));
       return;
     }
     if (action === 'watch') {
@@ -343,6 +367,12 @@ async function main() {
   if (cmd === 'settings') {
     const S = await import('../src/settings.mjs');
     const action = String(flags.action || 'get');
+    if (action === 'status') {
+      const { runDoctor, renderDoctor } = await import('../src/doctor.mjs');
+      const rep = await runDoctor(undefined, { online: Boolean(flags.online) });
+      console.log(flags.json ? JSON.stringify(rep, null, 2) : renderDoctor(rep, { color: !flags['no-color'] }));
+      return;
+    }
     if (action === 'reset') {
       const next = S.saveSettings(path.resolve('.'), S.DEFAULTS);
       console.log('已恢复默认设置 → ' + next.__file);
@@ -351,12 +381,13 @@ async function main() {
     if (action === 'set') {
       // settings set --mimo <key> --provider qwen --voice 冰糖
       const patch = {};
-      if (flags.mimo || flags.qwen || flags.minimax || flags.github) {
+      if (flags.mimo || flags.qwen || flags.minimax || flags.github || flags.bili) {
         patch.keys = {
           ...(flags.mimo ? { mimo: String(flags.mimo) } : {}),
           ...(flags.qwen ? { dashscope: String(flags.qwen) } : {}),
           ...(flags.minimax ? { minimax: String(flags.minimax) } : {}),
           ...(flags.github ? { github: String(flags.github) } : {}),
+          ...(flags.bili ? { bili: String(flags.bili) } : {}),
         };
       }
       if (flags.provider || flags.voice) patch.tts = { ...(flags.provider ? { provider: String(flags.provider) } : {}), ...(flags.voice ? { voice: String(flags.voice) } : {}) };
@@ -431,7 +462,7 @@ async function main() {
       const { buildPlateFrames } = await import('../src/plate.mjs');
       const name = flags.name || `${clip.key}-motion`;
       const dir = path.resolve(path.join('assets', 'plates', name));
-      const meta = buildPlateFrames({ from: clip.file, dir, ffmpeg: findFfmpeg(), seconds: num(flags.seconds) || 8, width: 720, height: 1280 });
+      const meta = buildPlateFrames({ from: clip.file, dir, ffmpeg: findFfmpeg(), seconds: num(flags.seconds) || 8, width: num(flags.width) || 1080, height: num(flags.height) || 1920 });
       console.log(`底板 ${name}：${meta.frames} 帧 / ${meta.seconds}s → ${dir}`);
       return;
     }

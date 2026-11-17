@@ -51,6 +51,7 @@ export const Config = Schema
       dashscope: Schema.string().description('千问 Qwen-TTS 的 key（对应 DASHSCOPE_API_KEY）'),
       minimax: Schema.string().description('MiniMax TTS / H3 视频的 key（对应 MINIMAX_API_KEY）'),
       github: Schema.string().description('GitHub token，仅私有仓库查新/发布用（对应 GITHUB_TOKEN）'),
+      bili: Schema.string().description('B站评论接口 Cookie：SESSDATA + bili_jct（建议带 buvid3），对应 BILI_COOKIE'),
     }).description('API Key（留空则继续用环境变量）'),
     tts: Schema.object({
       provider: Schema.string().description('默认配音服务商：xiaomi / qwen / minimax'),
@@ -59,6 +60,10 @@ export const Config = Schema
     comfy: Schema.object({
       base: Schema.string().description('本机 ComfyUI 地址，默认 http://127.0.0.1:8188'),
     }).description('本地模型'),
+    render: Schema.object({
+      scale: Schema.number().description('成片超采样倍数：1.5 = 1080×1920（默认），1 = 720p，2 = 1440×2560'),
+      fps: Schema.number().description('成片帧率，默认 24'),
+    }).description('成片规格'),
     publish: Schema.object({
       dryRun: Schema.boolean().description('预演：只准备文案与客户端，不真的投稿'),
       autoFill: Schema.boolean().description('把视频与文案填进投稿页'),
@@ -66,10 +71,15 @@ export const Config = Schema
       statement: Schema.string().description('创作声明，默认「自制」'),
     }).description('发布策略'),
     comments: Schema.object({
+      mode: Schema.string().description('回复方式：api=走评论接口；gui=截图点按钮；hybrid=接口优先、失败才点按钮（默认）'),
       autoReply: Schema.boolean().description('打开评论自动回复（默认关，只扫描不发送）'),
       fallback: Schema.string().description('没命中关键词时的兜底回复，留空表示不回复'),
       maxPerRun: Schema.number().description('单轮最多回复几条，默认 3'),
       intervalMinutes: Schema.number().description('挂机时每轮间隔分钟，默认 5'),
+      apiGapMs: Schema.number().description('接口发送间隔毫秒，默认 30000（平台约 30 秒 1 条，不建议调低）'),
+      apiVideos: Schema.number().description('一轮扫几个最近稿件，默认 3'),
+      recentHours: Schema.number().description('只回最近 N 小时内冒出来的评论，默认 72；0 表示不限（别把几个月前的旧评论翻出来互动）'),
+      guiFallback: Schema.boolean().description('接口失败时是否回退到截图点按钮，默认 true'),
       watchMinutes: Schema.number().description('定时任务里评论挂机多久，0 表示只打开页面'),
       rulesJson: Schema.string().description('规则 JSON：[{"match":"催更","reply":"今晚就更～"}]'),
     }).description('评论自动回复'),
@@ -247,9 +257,10 @@ function renderTool() {
       look: { type: 'string', description: '立绘模样：v1=原版，v2=居家套装，v3=外出套装，v4/v5=动作姿势，v6=水手服通勤，v7=冬日居家，v8=运动，v9=夏日祭（deepseek 独有）；也可传 variants 目录里任意后缀，缺图自动回退原版' },
       voice: { type: 'string', description: '顺手配音并混流：传音色名（如 冰糖 / Cherry / female-shaonv）或 design；provider 省略走 config/voice.json' },
       provider: { type: 'string', enum: ['xiaomi', 'qwen', 'minimax'], description: '配音服务商：xiaomi=小米 MiMo，qwen=千问 Qwen-TTS，minimax=MiniMax T2A' },
-      width: { type: 'number', description: '覆盖宽度' },
-      height: { type: 'number', description: '覆盖高度' },
-      fps: { type: 'number', description: '覆盖帧率' },
+      width: { type: 'number', description: '覆盖逻辑宽度，默认 720' },
+      height: { type: 'number', description: '覆盖逻辑高度，默认 1280' },
+      scale: { type: 'number', description: '超采样倍数，默认 1.5（紧凑 720×1280 布局 → 真实输出 1080×1920）；传 1 退回 720p，传 2 出 1440×2560' },
+      fps: { type: 'number', description: '覆盖帧率，默认 24' },
     },
     output: outputDef(),
     isConcurrencySafe: () => false,
@@ -259,6 +270,8 @@ function renderTool() {
       const { renderEpisode } = await import('./engine.mjs');
       const scriptPath = resolvePath(args.script, exec);
       const script = loadScript(scriptPath);
+      const { loadSettings } = await import('./settings.mjs');
+      const st = loadSettings(ROOT);
       if (args.look && String(args.look) !== 'v1') script.episode.look = String(args.look);
       const outFile = resolvePath(args.out, exec, path.join('out', `${script.id}.mp4`));
       const pngDir = args.png ? resolvePath(null, exec, path.join('out', `${script.id}-frames`)) : null;
@@ -268,7 +281,8 @@ function renderTool() {
         pngDir,
         width: args.width ? Number(args.width) : undefined,
         height: args.height ? Number(args.height) : undefined,
-        fps: args.fps ? Number(args.fps) : undefined,
+        fps: args.fps ? Number(args.fps) : Number(st.render?.fps) || undefined,
+        scale: args.scale ? Number(args.scale) : Number(st.render?.scale) || undefined,
         maxSeconds: args.preview_seconds ? Number(args.preview_seconds) : undefined,
         template: args.template,
       });
@@ -513,6 +527,14 @@ function postTool() {
       if (!meta.tags.length) meta.tags = ['AI日记', 'AI角色', '虚拟主播'];
 
       const steps = [];
+      // 投稿前先验规格：传错了片子（720p 旧片、比例不对、太短）在这一步就拦下来
+      const { preflight } = await import('./publish.mjs');
+      const pf = preflight(videoPath);
+      steps.push(
+        pf.ok
+          ? `成片规格 ${pf.info?.width ? `${pf.info.width}×${pf.info.height} / ${pf.info.seconds}s / ${pf.info.mb}MB` : '已通过（未读到明细）'}`
+          : `成片规格提醒：${pf.issues.join('；')}`,
+      );
       const launched = await b.ensureClient(cfg);
       steps.push(launched.launched ? '已启动客户端' : '客户端已在运行');
       if (!args.skip_open) {
@@ -538,6 +560,7 @@ function postTool() {
         args.confirm ? '投稿动作已提交，请在页面确认结果' : '稿件已准备就绪，停在「立即投稿」前',
         {
           ok: true, title: meta.title, tags: meta.tags, steps,
+          preflight: pf,
           notes: filled.notes, formShot: filled.shot, finalShot: sub.shot, confirm: Boolean(args.confirm),
           submitAt: sub.at,
           hint: args.confirm ? '分享链接与过审状态需人工复核' : '看一眼 formShot 确认无误，再 confirm:true 重跑一次即真正发布',
@@ -553,13 +576,16 @@ function commentsTool() {
     description:
       '评论管理 + 自动回复。action=calibrate：打开评论管理页，返回截图与本机 OCR 结果（看有没有「回复」入口）；action=scan：列出当前能读到的评论文字；action=auto：按规则匹配新评论并回复（默认 send=false 只出计划，send=true 才真发）；action=watch：挂一段时间，每 N 分钟扫一次（minutes/interval_minutes）；action=open：只打开页面截图。规则形如 [{"match":"催更","reply":"今晚就更～"}]，match 用 "*" 表示兜底；每条评论只回一次（文本指纹去重），单次默认最多 3 条。',
     parameters: {
-      action: { type: 'string', enum: ['open', 'calibrate', 'scan', 'auto', 'watch'], description: '默认 open' },
+      action: { type: 'string', enum: ['open', 'calibrate', 'scan', 'auto', 'watch', 'auth'], description: '默认 open。auth=只验 Cookie 能不能用（不发任何回复）' },
       minutes: { type: 'number', description: 'action=watch 时挂多久（分钟），默认 30，最大 1440' },
       interval_minutes: { type: 'number', description: 'action=watch 时每轮间隔（分钟），默认 5' },
-      rules: { type: 'json', description: '规则数组 [{"match":"关键词","reply":"回复文本"}]，不传则用设置里的 comments.rules' },
+      rules: { type: 'json', description: '规则数组：[{"match":"关键词或关键词数组或/正则/","reply":"一句"}, {"match":"催更","replies":["今晚就更～","在做了在做了"]}]。replies 池会避开最近用过的句子，不连刷同一句' },
       fallback: { type: 'string', description: '没有命中关键词时的兜底回复，留空表示不回复' },
       max: { type: 'number', description: '单轮最多回复几条，默认 3，最大 10' },
-      send: { type: 'boolean', description: 'action=auto 时是否真的点「发送」，默认 false' },
+      recent_hours: { type: 'number', description: '只回最近 N 小时内的新评论，默认按设置（72）；0 = 不限' },
+      mode: { type: 'string', enum: ['api', 'gui', 'hybrid'], description: '回复方式：api 走评论接口（稳定，需要 Cookie）；gui 截图点按钮；hybrid 接口优先、失败回退一次（默认按设置）' },
+      send: { type: 'boolean', description: 'action=auto 时是否真的发送，默认 false' },
+      cookie: { type: 'string', description: '临时覆盖 Cookie（SESSDATA=…; bili_jct=…; buvid3=…），一般不用传，设置里配一次即可' },
       reply: { type: 'string', description: '兼容旧用法：直接往回复框粘一段文本' },
     },
     output: outputDef(),
@@ -578,14 +604,23 @@ function commentsTool() {
         const r = await C.scan(ROOT, { saveShot: true });
         return out(`读到 ${r.comments.length} 条评论`, r);
       }
+      if (action === 'auth') {
+        const r = await C.checkAuth(ROOT, { cookie: args.cookie });
+        return out(r.ok ? `Cookie 可用：${r.uname}（mid ${r.mid}），读到 ${r.videos.length} 个稿件` : `Cookie 不可用：${r.error}`, r);
+      }
       if (action === 'auto') {
         const r = await C.autoReply(ROOT, {
           send: args.send === true,
           rules: args.rules,
           fallback: args.fallback,
           maxPerRun: args.max,
+          recentHours: args.recent_hours,
+          mode: args.mode,
         });
-        const head = r.send ? `已发送 ${r.sent} 条（计划 ${r.planned} 条）` : `预演：计划回复 ${r.planned} 条，未发送`;
+        const via = r.via === 'api' ? '接口' : r.via === 'hybrid' ? '接口+回退' : '点按钮';
+        const head = r.ok === false
+          ? `没发成：${r.error}`
+          : r.send ? `已发送 ${r.sent} 条（计划 ${r.planned} 条，走${via}）` : `预演：计划回复 ${r.planned} 条，未发送`;
         return out(head, r);
       }
       if (action === 'watch') {
@@ -596,6 +631,7 @@ function commentsTool() {
           rules: args.rules,
           fallback: args.fallback,
           maxPerRun: args.max,
+          mode: args.mode,
         });
         return out(`挂机 ${r.minutes} 分钟，${r.rounds} 轮，回复 ${r.sent} 条`, r);
       }
@@ -713,6 +749,8 @@ function motionTool() {
       name: { type: 'string', description: 'action=plate 的底板名，默认 <角色>-motion；import 时为文件名后缀，默认 loop' },
       clip: { type: 'string', description: 'action=plate 要用的短片 key，如 deepseek-loop；省略则按 character 找' },
       seconds: { type: 'number', description: 'action=plate 时长，默认 8 秒' },
+      width: { type: 'number', description: 'action=plate 底板宽度，默认 1080（跟 1080p 成片同规格，不二次放大）' },
+      height: { type: 'number', description: 'action=plate 底板高度，默认 1920' },
     },
     output: outputDef(),
     isConcurrencySafe: () => false,
@@ -742,7 +780,7 @@ function motionTool() {
       const { buildPlateFrames } = await import('./plate.mjs');
       const name = String(args.name || `${clip.key}-motion`);
       const dir = path.join(ROOT, 'assets', 'plates', name);
-      const meta = buildPlateFrames({ from: clip.file, dir, ffmpeg: findFfmpeg(ROOT), seconds: Number(args.seconds) || 8, width: 720, height: 1280 });
+      const meta = buildPlateFrames({ from: clip.file, dir, ffmpeg: findFfmpeg(ROOT), seconds: Number(args.seconds) || 8, width: Number(args.width) || 1080, height: Number(args.height) || 1920 });
       return out(`底板 ${name} 已生成 ${meta.frames} 帧 / ${meta.seconds}s → assets/plates/${name}`, { ok: true, plate: name, ...meta });
     },
   });
@@ -788,16 +826,25 @@ function settingsTool() {
   return defineTool({
     name: 'ai_diary_settings',
     description:
-      '读写 AI 日记工坊的插件设置（和 Harness 官方设置面板里的同一份配置）。get=看当前配置（key 会打码，只报告是否就绪以及来自环境变量还是文件）；set=改配置，例如 {"keys":{"mimo":"…"},"tts":{"provider":"qwen"},"publish":{"dryRun":true}}；reset=清空回默认。设置文件默认在 ~/.ai-diary/settings.json，环境变量优先（MIMO_API_KEY / DASHSCOPE_API_KEY / MINIMAX_API_KEY / GITHUB_TOKEN）。',
+      '读写 AI 日记工坊的插件设置（和 Harness 官方设置面板里的同一份配置）。status=一屏体检（环境/密钥/账号/内容/定时各自能不能用，带下一步建议）；get=看当前配置（key 会打码，只报告是否就绪以及来自环境变量还是文件）；set=改配置，例如 {"keys":{"mimo":"…"},"tts":{"provider":"qwen"},"comments":{"mode":"hybrid"}}；reset=清空回默认。设置文件默认在 ~/.ai-diary/settings.json，环境变量优先（MIMO_API_KEY / DASHSCOPE_API_KEY / MINIMAX_API_KEY / GITHUB_TOKEN / BILI_COOKIE）。评论接口的 Cookie 填 keys.bili，形如 "SESSDATA=…; bili_jct=…; buvid3=…"；不想手抄就跑 node scripts/qr-login.mjs --write 扫码登录。',
     parameters: {
-      action: { type: 'string', enum: ['get', 'set', 'reset'], description: 'get=读，set=写，reset=恢复默认；默认 get' },
+      action: { type: 'string', enum: ['status', 'get', 'set', 'reset'], description: 'status=体检，get=读，set=写，reset=恢复默认；默认 get' },
       patch: { type: 'json', description: 'action=set 时要合并进去的片段（会和现有配置深合并，不用给全量）' },
+      online: { type: 'boolean', description: 'action=status 时是否顺带联网验登录态、ComfyUI 与版本' },
     },
     output: outputDef(),
     isConcurrencySafe: () => true,
     async execute(args) {
       const S = await import('./settings.mjs');
       const action = String(args.action || 'get');
+      if (action === 'status') {
+        const { runDoctor, renderDoctor } = await import('./doctor.mjs');
+        const rep = await runDoctor(ROOT, { online: Boolean(args.online) });
+        return out(
+          `${rep.tally.ok}/${rep.checks.length} 通过${rep.tally.fail ? `，${rep.tally.fail} 项会挡路` : ''}${rep.hints.length ? `｜下一步：${rep.hints[0]}` : '｜没有待办'}`,
+          { ...rep, panel: renderDoctor(rep, { color: false }) },
+        );
+      }
       if (action === 'get') {
         const view = S.publicView(S.loadSettings(ROOT));
         const ready = Object.entries(view.keys).filter(([, v]) => v.ready).map(([k]) => k);

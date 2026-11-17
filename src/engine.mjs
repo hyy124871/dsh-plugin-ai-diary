@@ -13,7 +13,10 @@ import { findPlate, FramePlate } from './plate.mjs';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 export const ROOT = path.resolve(__dirname, '..');
 
-export const DEFAULTS = { width: 720, height: 1280, fps: 24 };
+// 布局以 720×1280 为逻辑坐标系书写；scale 是超采样倍数，1.5 → 真实输出 1080×1920。
+// 这样字号、圆角、边距这些硬编码的像素值一个都不用改，但文字与立绘按真实像素重新光栅化，
+// 不是把 720p 拉大，是本来就画在 1080p 的画布上。
+export const DEFAULTS = { width: 720, height: 1280, fps: 24, scale: 1.5 };
 
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
 const lerp = (a, b, t) => a + (b - a) * t;
@@ -180,6 +183,9 @@ export async function renderEpisode(script, opts = {}) {
   const W = opts.width || script.output?.width || DEFAULTS.width;
   const H = opts.height || script.output?.height || DEFAULTS.height;
   const FPS = opts.fps || script.output?.fps || DEFAULTS.fps;
+  const S = Math.max(1, Number(opts.scale ?? script.output?.scale ?? DEFAULTS.scale) || 1);
+  const OW = Math.round(W * S);
+  const OH = Math.round(H * S);
 
   const ep = opts.template
     ? { ...(script.episode || {}), template: opts.template, background: null }
@@ -194,10 +200,11 @@ export async function renderEpisode(script, opts = {}) {
   const bgImg = background && fs.existsSync(background) ? await loadImage(background) : null;
 
   // 动态底板：帧目录存在就用，缺了就退回静态底图
-  const plateReader = plate && fs.existsSync(plate) ? new FramePlate(plate, W, H) : null;
+  const plateReader = plate && fs.existsSync(plate) ? new FramePlate(plate, OW, OH) : null;
 
-  const canvas = createCanvas(W, H);
+  const canvas = createCanvas(OW, OH);
   const ctx = canvas.getContext('2d');
+  ctx.scale(S, S); // 之后所有绘制都用 720×1280 的逻辑坐标
   const noise = makeNoise(96, 96);
   const stars = makeStars(W, H, 80);
   const dust = makeDust(W, H);
@@ -213,8 +220,9 @@ export async function renderEpisode(script, opts = {}) {
     fs.mkdirSync(path.dirname(outFile), { recursive: true });
     encoder = spawn(ffmpegPath, [
       '-y', '-hide_banner', '-loglevel', 'error',
-      '-f', 'rawvideo', '-pix_fmt', 'rgba', '-s', `${W}x${H}`, '-framerate', String(FPS), '-i', '-',
-      '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '18',
+      '-f', 'rawvideo', '-pix_fmt', 'rgba', '-s', `${OW}x${OH}`, '-framerate', String(FPS), '-i', '-',
+      // 1080p 下把编码质量提一档：medium/crf 17 + high profile，成片在 B 站二压前能保住更多细节
+      '-c:v', 'libx264', '-preset', 'medium', '-crf', '17', '-profile:v', 'high', '-level', '4.1',
       '-pix_fmt', 'yuv420p', '-movflags', '+faststart',
       outFile,
     ], { stdio: ['pipe', 'ignore', 'pipe'] });
@@ -435,7 +443,8 @@ export async function renderEpisode(script, opts = {}) {
       fs.writeFileSync(path.join(pngDir, `f_${String(i).padStart(4, '0')}.png`), await canvas.encode('png'));
     } else {
       // 直接吐 RGBA 像素给 ffmpeg，跳过逐帧 PNG 压缩（实测快 3–4 倍）
-      const img = ctx.getImageData(0, 0, W, H);
+      // getImageData 用物理像素，不受 ctx.scale 影响 —— 这里必须是放大后的尺寸
+      const img = ctx.getImageData(0, 0, OW, OH);
       const buf = Buffer.from(img.data.buffer, img.data.byteOffset, img.data.byteLength);
       if (!encoder.stdin.write(buf)) await new Promise(r => encoder.stdin.once('drain', r));
     }
@@ -448,7 +457,7 @@ export async function renderEpisode(script, opts = {}) {
       encoder.on('close', c => (c === 0 ? resolve() : reject(new Error('ffmpeg exit ' + c))));
     });
   }
-  return { file: pngDir ? null : outFile, frames, seconds: Number((frames / FPS).toFixed(2)), width: W, height: H, fps: FPS };
+  return { file: pngDir ? null : outFile, frames, seconds: Number((frames / FPS).toFixed(2)), width: OW, height: OH, logicalWidth: W, logicalHeight: H, scale: S, fps: FPS };
 }
 
 function roundRect(ctx, x, y, w, h, r) {

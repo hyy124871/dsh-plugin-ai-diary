@@ -7,7 +7,7 @@
 ## 安装（30 秒）
 
 ```bash
-dsh plugin --profile <你的profile> add "<插件包路径>\dist\dsh-plugin-ai-diary-0.6.0.tgz"
+dsh plugin --profile <你的profile> add "<插件包路径>\dist\dsh-plugin-ai-diary-0.7.4.tgz"
 ```
 
 桌面版（profile 被 Electron 独占）用一键脚本：
@@ -17,6 +17,90 @@ powershell -ExecutionPolicy Bypass -File .\install.ps1
 ```
 
 装完 `dsh --profile <profile> --dump-config` 里能看到 `ai-diary` 就成功了。详见 `INSTALL.md`。
+
+## 0.7.4 更新了什么
+
+**投稿前先自检成片规格。** `ai_diary_publish` 与 `ai_diary_post` 现在会把视频喂给 ffmpeg 读一遍，直接告诉你 `1080×1920 / 49.8s / 35MB`；不是 9:16、宽度不到 1080、时长太短、超过单文件上限，都会先列出来再继续 —— 别把旧 720p 的片子当新规格投出去，白掉一次推荐。顺带体检面板多了一行「成片规格」。
+
+**评论：更像人在回。**
+- `match` 支持三种写法：子串、**关键词数组**、`/正则/`（例如 `/感谢|谢谢/`）。
+- 规则可以带 `replies` 文案池，每次从池里挑一句，并自动**避开最近 20 条用过的句子** —— 同一句连刷很像机器人。
+- 新增时间窗口 `recentHours`（默认 72 小时）：只回最近冒出来的评论，不会把几个月前的旧评论翻出来互动。工具里传 `recent_hours` 可临时覆盖，`0` 表示不限。
+- 去重账本从 199 条扩到 499 条，跨轮不会再重复回同一条（之前回过的 rpid 记住就不动）。
+
+## 0.7.3 更新了什么
+
+**成片升到 1080p，不是把 720p 拉大。** 渲染改成超采样：布局仍然按 720×1280 这套紧凑坐标写（字号、圆角、边距一个值都不用改），但画布按 1.5× 真实像素绘制，文字和立绘都是重新光栅化的 —— 素材本身就够（立绘 1536×1536、背景 2730×1536）。输出 1080×1920，`-crf 17 / preset medium / high profile`。
+
+```powershell
+node bin/ai-diary.mjs render --script out/day18-report.json          # 默认就出 1080×1920
+node bin/ai-diary.mjs render --script out/x.json --scale 1           # 想快就看 720p
+node bin/ai-diary.mjs render --script out/x.json --scale 2           # 1440×2560
+```
+
+实测 49.79 秒片：1080p 出 1195 帧、130 秒渲染（720p 时约 50 秒，2.6 倍）。设置面板里新增「成片规格」组（`render.scale` / `render.fps`），改一次全局生效；动态底板也默认按 1080×1920 生成，不再二次放大。
+
+**一屏体检：`node bin/ai-diary.mjs status`。**
+
+装完插件最烦的是「到底哪一步没配好」——现在一条命令全看清：
+
+```
+AI 日记工坊 0.8.0 · 体检
+─────────────────────────────
+✓ 9/12 通过，没有硬故障（未配置 2，注意 1）
+
+[环境]  Node 22 / ffmpeg / 画布库 / 设置文件可写
+[账号]  B 站登录态：SESSDATA+bili_jct 齐不齐、有没有 buvid3
+[发布]  客户端路径在不在
+[内容]  6 套模板 / 7 套底板 / 16 张立绘 + 88 张变体 / 6 段角色短片 / 13 条题材
+[定时]  开没开、上次跑成什么样
+[下一步] 一条条给出该跑哪个命令
+```
+
+- 只读检查，不改设置、不动客户端、不发请求；加 `--online` 才会顺带验 B 站登录态（回显你的昵称与 UID）、探活 ComfyUI、查有没有新版本。
+- `--json` 出结构化结果给脚本用，`--no-color` 去掉 ANSI（日志/CI 友好）。
+- 同一套检查也进了工具：`ai_diary_settings { action: "status" }`，模型可以直接问「插件现在缺什么」。
+- 中文标签按终端显示宽度补齐（CJK 算 2 格），所以列真的对得齐，不是靠猜空格。
+
+**ffmpeg 一键补齐。** 体检暴露过一个真问题：tgz 里不含 `vendor\ffmpeg.exe`，只装包、机器上又没 ffmpeg 的人渲染不出来。现在 `node scripts/get-ffmpeg.mjs` 一条命令解决：
+
+```powershell
+node scripts\get-ffmpeg.mjs                  # 自动选源（GitHub BtbN / gyan.dev），下 202 MB 完整构建，解到 vendor\，跑 -version 验收
+node scripts\get-ffmpeg.mjs --zip .\ffmpeg.zip   # 离线：拿已经下好的压缩包，不联网
+$env:HTTPS_PROXY="http://127.0.0.1:7897"; node scripts\get-ffmpeg.mjs   # GitHub 直连被 reset 时
+```
+
+解出来 170 MB、`ffmpeg version N-128959-…`，实测在装好的 profile 里跑通，体检从 9/12 变成 10/12（剩下两项是 Cookie 与定时，属可选）。
+
+## 0.7.1 更新了什么
+
+**配 Cookie 不用再开浏览器了：扫码登录。**
+
+- 新增 `scripts/qr-login.mjs`：走 B 站网页扫码登录的同一组公开接口（`/x/passport-login/web/qrcode/generate` 出码、`.../poll` 轮询），终端生成登录二维码 → 手机哔哩哔哩 App「扫一扫」→ 手机上点「确认登录」→ 脚本直接拿到 `SESSDATA` / `bili_jct` / `DedeUserID` 并写进 `keys.bili`。**不碰浏览器、不用 F12、不用关浏览器。**
+- 顺带把客户端 Cookie 库里那条匿名 `buvid3` 带上——客户端这条路唯一有用的东西，扫码时少一层风控（`-412` 就是缺它）。
+- 新增零依赖二维码编码 `src/qr.mjs`：byte 模式 / 纠错 L / 版本 1–10 / 固定 mask 0，外加灰度 PNG 编码。矩阵与 python `qrcode` 库逐模块比对 **0 差异**（可跑 `node scripts/qr-login.mjs --selftest` 复核）。
+- 拿到 Cookie 后仍然先跑 `comments --action auth` 再 `--action auto`，别一上来就发。
+
+## 0.7.0 更新了什么
+
+评论回复换主路线：**走评论接口，不再靠截图点「发表回复」。**
+
+- 新增 `ai_diary_comments action=auth`：只验 Cookie 能不能用（读登录态 + 自己最近稿件），不发任何回复。
+- `action=auto` 支持 `mode`：
+  - `api`：读自己最近稿件 → 拉评论（`/x/v2/reply/wbi/main`）→ 规则匹配 → `POST /x/v2/reply/add` 发送。全程不碰窗口、不截图。
+  - `gui`：原来那套截图 + OCR 点按钮。
+  - `hybrid`（默认）：接口优先；只有接口报 `-101`（登录失效）/`-412`（缺 buvid3 或被拦）/`25004`（风控）时才回退点按钮，且只回退一次。
+- **回复语义是对的**：带上 `root`（根评论 rpid）与 `parent`（被回复评论 rpid），所以是真的"回复这条评论"，不会变成该稿件下的新评论。
+- **限频按平台节拍**：默认 30 秒一条、单轮最多 3 条（`comments.apiGapMs` / `comments.maxPerRun`）。这是平台规则，快不了，也不要试着绕过。
+- **去重**：以 `rpid:` 记账（比旧的文本指纹准，同一句话换个号发也不会重复回）；自己发的、楼里已经回过我的，都会跳过。
+- **WBI 签名**：读稿件与读评论用的是要签名的接口（`w_rid` + `wts`，mixin key 由 `img_key`/`sub_key` 重排后截 32 位、MD5），每天轮换，所以每次运行现取，不长期缓存。
+- **Cookie 怎么配**：设置里 `keys.bili` 填 `SESSDATA=…; bili_jct=…; buvid3=…`，或设环境变量 `BILI_COOKIE`。命令行也能写：`node bin/ai-diary.mjs settings --action set --bili "SESSDATA=…; bili_jct=…; buvid3=…"`。
+  - **最省事：扫码登录，不碰浏览器** —— `node scripts/qr-login.mjs --write`。终端出登录二维码（`out/qr-login.png`，会自动打开），手机哔哩哔哩 App「扫一扫」→ 手机上点确认，脚本轮询到结果后把 `SESSDATA` / `bili_jct` / `DedeUserID` 直接写进设置。不用登录过网页版、不用 F12、不用关浏览器；二维码只有几分钟寿命，失效会自动换一张。
+  - 手动：浏览器登录 bilibili.com → F12 → Application → Cookies → `https://www.bilibili.com` → 复制 `SESSDATA`、`bili_jct`、`buvid3`。`SESSDATA` 是 HttpOnly，只能在 Application 面板看，`document.cookie` 拿不到。
+  - 自动：`node scripts/grab-cookie.mjs --browser edge --write`（读 Edge 的 cookie 库，DPAPI 还原密钥 + AES-256-GCM 解密，直接写进设置）。两个实测约束：**Edge 运行时会独占锁住 cookie 库，要先完全退出 Edge**；Chrome 新版是 v20(app_bound) 加密，读不了，会明确报错而不是吐乱码。
+  - 哔哩哔哩客户端**不行**：它的 cookie 库里只有匿名 `buvid3`/`buvid4`，没有 `SESSDATA`/`bili_jct`——客户端登录走的是 App 凭据，不是网页 Cookie。
+- **真机状态**：接口路径已联通并验证 —— 假 Cookie 会正确返回 `-101`；匿名读一条公开评论能解析出 rpid/作者/正文；稿件列表还带了一条创作中心备用通道。**真发需要你自己的 Cookie**，配好后先跑 `action=auth` 再 `action=auto`（不带 `send` 是预演）。
+- **命令行**：`node bin/ai-diary.mjs comments --action auth`、`node bin/ai-diary.mjs comments --action auto --mode api|gui|hybrid --send true --max 3`。
 
 ## 0.6.0 更新了什么
 
@@ -123,7 +207,7 @@ powershell -ExecutionPolicy Bypass -File .\install.ps1
 | `ai_diary_publish` | 轻量版：文案进剪贴板 + 带视频启动客户端，停在「投稿」前 | 否 |
 | `ai_diary_pick` | 情绪挑立绘、模板挑底板/背景，给封面候选与缺失说明 | 否 |
 | `ai_diary_post` | 客户端真投稿：上传 → 等完成 → 填表 → 停在「立即投稿」前（`confirm:false` 不点） | 否 |
-| `ai_diary_comments` | 打开「互动管理 → 评论管理」并截图，可带 `reply` 填回复框（`send:false` 不发） | 否 |
+| `ai_diary_comments` | 评论自动回复：`auth` 验 Cookie；`auto` 走接口（`mode=api/hybrid`）或截图点按钮（`gui`），`send:false` 只出计划 | 是（要 B 站 Cookie） |
 | `ai_diary_local` | 驱动本机 ComfyUI 出图：探活 / 列底模 / 六种风格 / 按提示词生成（D 盘 6 个 .safetensors 都能用） | 否（本地算力） |
 | `ai_diary_motion` | 角色动态素材：收短片 / 列清单 / 转 9:16 动态底板（video→plate） | 否 |
 | `ai_diary_update` | 联网查新 / 下载 / 按 profile 安装（GitHub Releases） | 否 |
@@ -343,6 +427,8 @@ out/               剧本 JSON、MP4、渲染日志、选题历史
 - **三家 TTS 与 H3 都按官方文档实现，但本机至今没有任何一把 key**（`MIMO_API_KEY` / `DASHSCOPE_API_KEY` / `MINIMAX_API_KEY` 都未配置），所以只做过「接口形态 + 解析路径 + 音轨管线」的离线自检：`test-providers.mjs` 用本地假服务器验证 base64 / URL / hex 三种返回都能落地 wav，`test-voice.mjs` 验证 atempo/apad 与拼轨混流；真实合成尚未联调。
 - H3 走的是异步计费接口，工具默认 `dry_run: true`，不传 `dry_run: false` 不会真的扣费。
 - B 站接口随时会变；脚本跑失败会返回明确原因，不会假装成功。
+- 评论接口这条路要你的 Cookie（`SESSDATA` / `bili_jct` / `buvid3`）。Cookie 等于登录态，别提交进仓库、别发群里；失效了会返回 `-101`，重新取一份就行。
+- 评论有平台限频（约 30 秒 1 条）。这个节拍是平台定的，插件只排队不突破；硬绕会被风控（`25004`）甚至封号，不值得。
 - 素材授权沿用原项目：社区二创立绘仅个人非商用，商单前别混用。
 
 MIT。

@@ -1,6 +1,6 @@
-# 安装说明 · dsh-plugin-ai-diary 0.4.1
+# 安装说明 · dsh-plugin-ai-diary 0.7.4
 
-「AI 日记工坊」是 **DeepSeek Harness（dsh）** 的插件：题材 → 剧本 → 9:16 竖屏成片 → 哔哩哔哩客户端发布，整条链装成 12 个工具（10 个 ai_diary_* + 2 个 pc_*，含客户端投稿 / 评论 / 素材选配）。画面由本地渲染引擎（@napi-rs/canvas + ffmpeg）逐帧合成，**不烧视频生成额度**。
+「AI 日记工坊」是 **DeepSeek Harness（dsh）** 的插件：题材 → 剧本 → 9:16 竖屏成片 → 哔哩哔哩客户端发布，整条链装成 17 个工具（15 个 ai_diary_* + 2 个 pc_*，含客户端投稿 / 评论 / 素材选配与一屏体检）。画面由本地渲染引擎（@napi-rs/canvas + ffmpeg）逐帧合成，**不烧视频生成额度**。
 
 ---
 
@@ -38,7 +38,7 @@ powershell -ExecutionPolicy Bypass -File .\install.ps1
 参数：
 
 ```powershell
-.\install.ps1 -Mode tgz -PackagePath ".\dist\dsh-plugin-ai-diary-0.4.1.tgz"   # 用打包件装（191 MB，约 2 分钟）
+.\install.ps1 -Mode tgz -PackagePath ".\dist\dsh-plugin-ai-diary-0.7.4.tgz"   # 用打包件装（234 MB，约 2 分钟）
 .\install.ps1 -ProfileRoot "C:\Users\你\.dsh\profiles\web"                    # 装到别的 profile
 .\install.ps1 -Uninstall                                                      # 卸掉
 ```
@@ -46,6 +46,23 @@ powershell -ExecutionPolicy Bypass -File .\install.ps1
 三种模式都实测过：link 约 5 秒、tgz 约 1 分 47 秒、卸载约 3 秒，卸完 `dsh.profile.bundles` 回到空数组。
 
 装完**重启 DeepSeek Harness**（不是重开窗口，是退出应用再起），插件才会加载。
+
+### 装完先体检（0.8.0）
+
+```powershell
+node bin\ai-diary.mjs status              # 一屏看清：环境 / 账号 / 发布 / 内容 / 定时
+node bin\ai-diary.mjs status --online     # 顺带验 B 站登录态（回显昵称+UID）、ComfyUI、新版本
+```
+
+体检只读：不改设置、不动客户端、不发请求；哪个环节没配好，末行「下一步」会直接给出该跑的命令。`--json` 给脚本用，`--no-color` 去掉颜色。在会话里也可以让模型调 `ai_diary_settings { action: "status" }`。
+
+**包里不带 ffmpeg**（100 MB，不塞进 tgz）。体检若报 `✗ ffmpeg 找不到`，一条命令补齐：
+
+```powershell
+node scripts\get-ffmpeg.mjs                       # 自动选源下载 → 解到 vendor\ → 跑 -version 验收
+node scripts\get-ffmpeg.mjs --zip .\ffmpeg.zip    # 离线用已下好的包
+$env:HTTPS_PROXY="http://127.0.0.1:7897"; node scripts\get-ffmpeg.mjs   # GitHub 直连被 reset 时
+```
 
 ### 方式 B · 手动两条命令（桌面版）
 
@@ -211,3 +228,18 @@ node bin\ai-diary.mjs pc --act "focus 浏览器窗口" "wait 1"
 - 客户端 UI 改版时，改 `config/bili.json` 里的比例锚点即可（`railUploadIcon`、`uploadVideoButton`、`titleField`、`tagsInput`、`coverRecommended1`、`statementSelect`、`submitButton`…），锚点是相对窗口截图的 0–1 比例。
 - 上传等待按体积估算（默认 9 秒/MB，最少 20 秒），文件大就把 `config/bili.json` 的 `waits.upload.msPerMb` 调大。
 - 已知限制：Electron 客户端不暴露控件树，只能用「截图 + 坐标点击」；窗口最小化时截图会报 `WINDOW_MINIMIZED`，工具已自动先 `focus` 恢复。创作声明下拉的选项锚点尚未在真机验证，`post` 会跳过它并在结果里提示。
+
+### 评论走接口：先扫码拿 Cookie（0.7.1）
+
+评论回复的主路线是评论接口（`comments --action auto --mode api`），接口要网页登录态，所以得先配 `SESSDATA` + `bili_jct`。**不用开浏览器**：
+
+```powershell
+node scripts\qr-login.mjs --write          # 出二维码 → 手机哔哩哔哩 App 扫 → 自动写进设置
+node bin\ai-diary.mjs comments --action auth   # 先验登录态，不发任何回复
+node bin\ai-diary.mjs comments --action auto --mode api --send true --max 3
+```
+
+- 二维码落在 `out\qr-login.png` 并自动打开；不想弹窗就加 `--no-open`。几分钟内没扫会失效，脚本自动换一张。
+- 默认 30 秒一条、单轮最多 3 条（`comments.apiGapMs` / `maxPerRun`），这是平台限频，别调低。
+- 客户端本身给不了登录态（库里只有匿名 `buvid3`/`buvid4`），但它那条 `buvid3` 会被扫码脚本顺手带上，能少一层风控。
+

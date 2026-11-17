@@ -61,8 +61,8 @@ export function openPlate(root, name, W, H) {
   }
 }
 
-/** 把一段视频或一张静帧转成底板帧目录 */
-export function buildPlateFrames({ from, dir, ffmpeg, width = 720, height = 1280, seconds = 8, fps = PLATE_FPS, zoom = 0.0007 }) {
+/** 把一段视频或一张静帧转成底板帧目录（默认 1080×1920，跟成片同规格，渲染时不再二次放大） */
+export function buildPlateFrames({ from, dir, ffmpeg, width = 1080, height = 1920, seconds = 8, fps = PLATE_FPS, zoom = 0.0007 }) {
   if (!from || !fs.existsSync(from)) throw new Error('找不到素材：' + from);
   fs.mkdirSync(dir, { recursive: true });
   for (const f of fs.readdirSync(dir)) if (/^f_\d+\.jpg$/.test(f)) fs.unlinkSync(path.join(dir, f));

@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
-export function buildPlate({ from, out, seconds = 8, width = 720, height = 1280, fps = 24, ffmpeg, zoom = 0.0007 }) {
+export function buildPlate({ from, out, seconds = 8, width = 1080, height = 1920, fps = 24, ffmpeg, zoom = 0.0007 }) {
   if (!from || !fs.existsSync(from)) throw new Error('找不到底图：' + from);
   const ff = ffmpeg || path.join(ROOT, 'vendor', process.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg');
   fs.mkdirSync(path.dirname(out), { recursive: true });

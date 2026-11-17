@@ -3,7 +3,7 @@
 //   browser：走 Chrome CDP 打开创作中心自动填表（老方案，保留给需要全自动的场景）
 // 两种模式都默认 dry-run：不会替用户点「投稿」。发布是对外不可逆动作，最后一下必须人来按。
 
-import { spawn, execSync } from 'node:child_process';
+import { spawn, execSync, execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -99,6 +99,60 @@ function writeSidecar(video, { title, desc, tags }) {
   return file;
 }
 
+/** 找 ffmpeg：插件自带的优先，再看环境变量和 PATH（不 import engine，免得连带 canvas 依赖） */
+function findFfmpegQuick() {
+  const env = process.env.DIARY_FFMPEG;
+  if (env && fs.existsSync(env)) return env;
+  const v = path.join(ROOT, 'vendor', process.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg');
+  if (fs.existsSync(v)) return v;
+  try {
+    const line = String(execSync(process.platform === 'win32' ? 'where ffmpeg' : 'which ffmpeg', { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }))
+      .split(/\r?\n/)[0]
+      .trim();
+    if (line) return line;
+  } catch {}
+  return null;
+}
+
+/**
+ * 上传前自检：分辨率、竖屏比例、时长、体积。
+ * 1080p 之后这条最有用 —— 别把旧 720p 的片子当新规格投出去，白掉一次推荐。
+ */
+export function preflight(video) {
+  const abs = path.resolve(video);
+  if (!fs.existsSync(abs)) return { ok: false, issues: ['视频文件不存在：' + abs], info: null };
+  const ff = findFfmpegQuick();
+  if (!ff) return { ok: true, issues: [], info: null, note: '没找到 ffmpeg，跳过规格检查' };
+
+  let dump = '';
+  try {
+    dump = String(execFileSync(ff, ['-hide_banner', '-i', abs], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }));
+  } catch (e) {
+    dump = String((e && (e.stderr || e.stdout)) || '');
+  }
+  const dur = dump.match(/Duration: (\d+):(\d+):(\d+(?:\.\d+)?)/);
+  const vid = dump.match(/Video: .*?(\d{2,5})x(\d{2,5})/);
+  const mb = fs.statSync(abs).size / 1048576;
+  const seconds = dur ? Number(dur[1]) * 3600 + Number(dur[2]) * 60 + Number(dur[3]) : null;
+  const width = vid ? Number(vid[1]) : null;
+  const height = vid ? Number(vid[2]) : null;
+
+  const issues = [];
+  if (!width || !height) issues.push('读不到分辨率');
+  else {
+    if (Math.abs(height / width - 16 / 9) > 0.08) issues.push(`不是 9:16 竖屏（${width}×${height}）`);
+    if (width < 1080) issues.push(`宽度只有 ${width}，不到 1080 —— 旧片重投会掉清晰度`);
+  }
+  if (seconds !== null && seconds < 8) issues.push(`时长只有 ${seconds}s，太短容易被判低质`);
+  if (mb > 8000) issues.push(`体积 ${Math.round(mb)}MB，超过 B 站单文件上限（约 8GB）`);
+
+  return {
+    ok: issues.length === 0,
+    issues,
+    info: { width, height, seconds, mb: Math.round(mb) },
+  };
+}
+
 export async function publishViaClient({ video, title, desc, tags = [], dryRun = true } = {}) {
   const exe = findClient();
   if (!exe) {
@@ -113,6 +167,7 @@ export async function publishViaClient({ video, title, desc, tags = [], dryRun =
 
   const sidecar = writeSidecar(videoAbs, { title, desc, tags });
   const clipOk = setClipboard([title, '', desc, '', (tags || []).join(' ')].join('\n'));
+  const pf = preflight(videoAbs);
 
   const wasRunning = isRunning(path.basename(exe));
   if (!wasRunning) {
@@ -133,10 +188,14 @@ export async function publishViaClient({ video, title, desc, tags = [], dryRun =
     clientRunning: running,
     clipboard: clipOk,
     sidecar,
+    preflight: pf,
     message: [
       running ? '哔哩哔哩客户端已打开。' : '已发起启动请求，客户端可能还在加载。',
       clipOk ? '标题+简介+标签已放进剪贴板（Ctrl+V 即可粘贴）。' : '剪贴板写入失败，请用 sidecar 文案。',
       '投稿文案也存到了 ' + path.basename(sidecar) + '。',
+      pf.ok
+        ? `成片规格：${pf.info && pf.info.width ? `${pf.info.width}×${pf.info.height} / ${pf.info.seconds}s / ${pf.info.mb}MB` : '未读到（跳过检查）'}`
+        : `成片规格提醒：${pf.issues.join('；')}`,
       '剩下三步需要你点：客户端里进「投稿 / 上传视频」→ 选中 ' + path.basename(videoAbs) + ' → 粘贴文案后自己点「投稿」。',
       '插件不会替你在客户端里点发布：那是不可逆的对外动作。',
     ].join('\n'),

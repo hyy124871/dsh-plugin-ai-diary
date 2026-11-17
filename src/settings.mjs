@@ -20,18 +20,30 @@ export const SECRETS = {
   dashscope: 'DASHSCOPE_API_KEY',
   minimax: 'MINIMAX_API_KEY',
   github: 'GITHUB_TOKEN',
+  bili: 'BILI_COOKIE',
 };
 
 export const DEFAULTS = {
-  keys: { mimo: '', dashscope: '', minimax: '', github: '' },
+  keys: { mimo: '', dashscope: '', minimax: '', github: '', bili: '' },
   tts: { provider: 'xiaomi', voice: '' },
   comfy: { base: 'http://127.0.0.1:8188' },
+  // 成片规格：逻辑布局固定 720×1280，scale 是超采样倍数 → 1.5 出 1080×1920
+  render: { scale: 1.5, fps: 24 },
   publish: { mode: 'client', dryRun: true, autoFill: false, autoSubmit: false, statement: '自制' },
   comments: {
+    // api=走评论接口；gui=截图点按钮；hybrid=接口优先，接口挂了才点按钮
+    mode: 'hybrid',
     rules: [],
     fallback: '',
     maxPerRun: 3,
     intervalMinutes: 5,
+    // 平台约 30 秒只能发 1 条，不要调低这条线
+    apiGapMs: 30_000,
+    // 一轮最多扫几个稿件
+    apiVideos: 3,
+    // 只回最近 N 小时内冒出来的评论；0 = 不限（默认 72 小时，别把几个月前的旧评论翻出来互动）
+    recentHours: 72,
+    guiFallback: true,
     replied: [],
     watch: null,
   },
@@ -144,6 +156,15 @@ export function publicView(settings) {
     tts: settings.tts,
     comfy: settings.comfy,
     publish: settings.publish,
+    comments: {
+      mode: settings.comments.mode,
+      apiGapMs: settings.comments.apiGapMs,
+      apiVideos: settings.comments.apiVideos,
+      recentHours: settings.comments.recentHours,
+      guiFallback: settings.comments.guiFallback,
+      maxPerRun: settings.comments.maxPerRun,
+      repliedCount: (settings.comments.replied || []).length,
+    },
     schedule: { ...settings.schedule, runs: (settings.schedule.runs || []).slice(-7) },
   };
 }
