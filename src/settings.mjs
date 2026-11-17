@@ -25,15 +25,17 @@ export const SECRETS = {
 };
 
 export const DEFAULTS = {
+  // 总开关：默认关闭。关着时定时出片、定时发布、自动回评论都不跑，只在面板里手动点才动
+  enabled: false,
   keys: { mimo: '', dashscope: '', minimax: '', ark: '', github: '', bili: '' },
-  tts: { provider: 'xiaomi', voice: '' },
+  tts: { provider: 'xiaomi', model: '', voice: '' },
   comfy: { base: 'http://127.0.0.1:8188' },
   // 成片规格：逻辑布局固定 720×1280，scale 是超采样倍数 → 1.5 出 1080×1920
   // workers 是并行渲染段数，0 = 自动（核数一半，最多 4 段）
   // accelerator：cpu=libx264（画质最好）| gpu=硬件编码（NVENC/QSV/AMF，快数倍）| auto=有硬件就用
   render: { scale: 1.5, fps: 24, workers: 0, accelerator: 'auto' },
-  // 图片模型：Seedream（火山方舟），给角色补立绘 / 封面底图
-  image: { model: 'seedream-4.0', size: '2K' },
+  // 图片模型：Seedream（火山方舟）。5.5 是 2026-10 新发布的一代，原生 RGBA、百轮编辑
+  image: { model: 'seedream-5.5', size: '2K' },
   // H3 默认档位：日常出片用 Highspeed，追求画质手动切 H3 + 2K
   video: { model: 'MiniMax-H3-Highspeed', resolution: '768P' },
   // 自动更新：启动静默查新；autoInstall=true 查询到就自己装（装完要重启 Harness）
@@ -120,6 +122,15 @@ export function loadSettings(root) {
     raw = {};
   }
   const s = merge(DEFAULTS, raw);
+  // 0.9.5 起默认生图换成 Seedream 5.5：老配置里写死 4.0 的直接顶上去（4.0 方舟已标注即将下线）
+  if (s.image && s.image.model === 'seedream-4.0') {
+    s.image.model = 'seedream-5.5';
+    try {
+      saveSettings(root, { image: { model: 'seedream-5.5' } });
+    } catch {
+      /* 写不进去就只在内存里升级 */
+    }
+  }
   s.__file = file;
   return s;
 }
@@ -174,6 +185,7 @@ export function publicView(settings) {
     };
   }
   return {
+    enabled: Boolean(settings.enabled),
     file: settings.__file,
     keys,
     tts: settings.tts,

@@ -1217,7 +1217,16 @@ export function apply(ctx, config = {}) {
     if (typeof ctx.inject !== 'function') throw new Error('宿主 ctx 没有 inject，跳过设置路由（仅测试桩会这样）');
     ctx.inject(['webServer'], (webCtx) => {
       // 工作室相关的动作，走同一个 /api/ai-diary/config 路由，省得再挂一条
-      const STUDIO_ACTIONS = new Set(['refreshComments', 'addAsset', 'removeFilm', 'publishNow', 'planPreview']);
+      const STUDIO_ACTIONS = new Set([
+        'refreshComments',
+        'addAsset',
+        'removeFilm',
+        'publishNow',
+        'planPreview',
+        'biliQrStart',
+        'biliQrPoll',
+        'biliWhoami',
+      ]);
       const dispose = webCtx.webServer.register({
         kind: 'exact',
         path: '/api/ai-diary/config',
@@ -1227,10 +1236,13 @@ export function apply(ctx, config = {}) {
             res.end(JSON.stringify(obj));
           };
           try {
-            const [S, U, ST] = await Promise.all([
+            const [S, U, ST, SD, VC, BL] = await Promise.all([
               import('./settings.mjs'),
               import('./update.mjs'),
               import('./studio.mjs'),
+              import('./seedream.mjs'),
+              import('./voice.mjs'),
+              import('./bili-login.mjs'),
             ]);
             const snapshot = () => {
               const st = S.loadSettings(ROOT);
@@ -1241,6 +1253,7 @@ export function apply(ctx, config = {}) {
               }
               return {
                 version: readVersion(),
+                enabled: Boolean(st.enabled),
                 update: st.update || {},
                 render: st.render || {},
                 image: st.image || {},
@@ -1248,6 +1261,8 @@ export function apply(ctx, config = {}) {
                 tts: st.tts || {},
                 text: st.text || {},
                 keys,
+                // 面板下拉要的可选型号清单（生图 / 配音）
+                models: { image: SD.modelOptions(), tts: VC.modelOptions() },
                 state: U.freshState(ROOT),
                 settingsFile: S.settingsPath(ROOT),
                 // 工作室四块：素材库 / 成片库 / 发布与评论 / 自动化
@@ -1293,6 +1308,19 @@ export function apply(ctx, config = {}) {
                 S.applyEnv(S.loadSettings(ROOT));
                 const plan = await ST.planTopic(ROOT, { useModel: body.useModel !== false });
                 return send(200, { ok: true, plan: { how: plan.how, why: plan.why || null, error: plan.error || null, topic: plan.topic }, ...snapshot() });
+              }
+              // B 站扫码登录：面板出一张二维码，前端轮询 poll 直到成功
+              if (body.action === 'biliQrStart') {
+                const q = await BL.startQr();
+                return send(200, { ok: q.ok, reason: q.reason || null, qr: q, ...snapshot() });
+              }
+              if (body.action === 'biliQrPoll') {
+                const p = await BL.pollQr(ROOT, body.key);
+                return send(200, { ok: true, poll: p, ...snapshot() });
+              }
+              if (body.action === 'biliWhoami') {
+                const me = await BL.whoami(ROOT);
+                return send(200, { ok: true, me, ...snapshot() });
               }
             }
             if (body && body.action === 'check') {

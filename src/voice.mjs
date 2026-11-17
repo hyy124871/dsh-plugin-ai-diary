@@ -24,6 +24,10 @@ export const PROVIDERS = {
     endpoint: XIAOMI_ENDPOINT,
     model: 'mimo-v2.5-tts',
     designModel: 'mimo-v2.5-tts-voicedesign',
+    models: [
+      { id: 'mimo-v2.5-tts', note: '预置音色，按 voice 选' },
+      { id: 'mimo-v2.5-tts-voicedesign', note: '按文字描述现造声线，不用挑音色' },
+    ],
     voices: ['mimo_default', '冰糖', '茉莉', '苏打', '白桦', 'Mia', 'Chloe', 'Milo', 'Dean'],
     defaultVoice: '冰糖',
   },
@@ -32,6 +36,10 @@ export const PROVIDERS = {
     keyEnv: 'DASHSCOPE_API_KEY',
     endpoint: QWEN_ENDPOINT,
     model: 'qwen3-tts-flash',
+    models: [
+      { id: 'qwen3-tts-flash', note: '默认档，7 个常用音色，按字数计费' },
+      { id: 'qwen3-tts-flash-realtime', note: '实时流式版，17 种高表现力音色，低延迟' },
+    ],
     voices: ['Cherry', 'Serena', 'Ethan', 'Chelsie', 'Dylan', 'Jada', 'Sunny'],
     defaultVoice: 'Cherry',
     note: '单次文本上限 600 字符；音色表以百炼控制台为准',
@@ -41,11 +49,29 @@ export const PROVIDERS = {
     keyEnv: 'MINIMAX_API_KEY',
     endpoint: MINIMAX_ENDPOINT,
     model: 'speech-2.8-hd',
+    models: [
+      { id: 'speech-2.8-hd', note: '最新一代高清档，2.8 系列语气词更自然' },
+      { id: 'speech-2.8-turbo', note: '同代极速档，便宜一半' },
+      { id: 'speech-02-hd', note: '上一代高清档' },
+      { id: 'speech-02-turbo', note: '上一代极速档，最省' },
+    ],
     voices: ['female-shaonv', 'female-yujie', 'female-tianmei', 'male-qn-qingse', 'male-qn-badao', 'presenter_male', 'presenter_female'],
     defaultVoice: 'female-shaonv',
     note: 'speech-2.8 系列支持行内语气词标签，如 (laughs)(sighs)',
   },
 };
+
+/** 面板下拉直接用：每家可选的模型 */
+export function modelOptions() {
+  return Object.entries(PROVIDERS).map(([id, p]) => ({
+    provider: id,
+    label: p.label,
+    keyEnv: p.keyEnv,
+    models: p.models || [{ id: p.model, note: '' }],
+    voices: p.voices || [],
+    defaultVoice: p.defaultVoice,
+  }));
+}
 
 export const PRESET_VOICES = PROVIDERS.xiaomi.voices; // 兼容旧调用
 
@@ -107,13 +133,15 @@ function hexToBuffer(hex) {
 /* ---------------- 各家合成实现 ---------------- */
 
 async function synthXiaomi(text, opts) {
+  // 选了 voicedesign 型号就算没传 mode 也走描述造声线那条路
+  const isDesign = opts.mode === 'design' || /voicedesign/i.test(String(opts.model || ''));
   const body = {
-    model: opts.mode === 'design' ? PROVIDERS.xiaomi.designModel : PROVIDERS.xiaomi.model,
+    model: opts.model || (isDesign ? PROVIDERS.xiaomi.designModel : PROVIDERS.xiaomi.model),
     messages: [
       { role: 'user', content: opts.instruction || '自然口语，像日常自言自语。' },
       { role: 'assistant', content: String(text) },
     ],
-    audio: opts.mode === 'design'
+    audio: isDesign
       ? { format: 'wav', optimize_text_preview: false }
       : { format: 'wav', voice: opts.voice || PROVIDERS.xiaomi.defaultVoice },
   };

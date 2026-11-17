@@ -13,10 +13,45 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const BASE = 'https://ark.cn-beijing.volces.com/api/v3';
 
 // 型号 id 随方舟控制台上架会变，这里给的是常见公开 id；设置里可覆盖成任意 id。
+// 2026-11 的现状：5.5 是最新一代（原生 RGBA、百轮编辑、文字更准），5.0 pro 强在坐标/图层编辑，
+// 5.0 flash 与 pro 能力同级但更快更便宜，4.0 已标注「即将下线」。
 export const MODELS = {
-  'seedream-4.0': { id: 'doubao-seedream-4-0-250828', sizes: ['1K', '2K', '4K', '1024x1024', '1536x1024', '1024x1536'], refs: true },
-  'seedream-3.0': { id: 'doubao-seedream-3-0-t2i-250415', sizes: ['1024x1024', '864x1152', '1152x864', '1280x720', '720x1280', '832x1248', '1248x832', '1512x648'], refs: false },
+  'seedream-5.5': {
+    id: 'doubao-seedream-5-5-261028',
+    sizes: ['1K', '1.5K', '2K'],
+    refs: true,
+    note: '最新一代：原生 RGBA 透明素材、最多 100 轮编辑、文字与真实感更强',
+  },
+  'seedream-5.0-pro': {
+    id: 'doubao-seedream-5-0-pro-260628',
+    sizes: ['1K', '1.5K', '2K'],
+    refs: true,
+    note: '支持坐标/框选精准编辑与图层拆分（1 底图 + 16 图层）',
+  },
+  'seedream-5.0-flash': {
+    id: 'doubao-seedream-5-0-flash-260915',
+    sizes: ['1K', '1.5K', '2K'],
+    refs: true,
+    note: '能力与 5.0 pro 同级，速度更快、价格更低',
+  },
+  'seedream-4.0': {
+    id: 'doubao-seedream-4-0-250828',
+    sizes: ['1K', '2K', '4K', '1024x1024', '1536x1024', '1024x1536'],
+    refs: true,
+    note: '旧版，方舟已标注即将下线',
+  },
+  'seedream-3.0': {
+    id: 'doubao-seedream-3-0-t2i-250415',
+    sizes: ['1024x1024', '864x1152', '1152x864', '1280x720', '720x1280', '832x1248', '1248x832', '1512x648'],
+    refs: false,
+    note: '纯文生图',
+  },
 };
+
+/** 设置里可选的型号清单（面板下拉直接用） */
+export function modelOptions() {
+  return Object.entries(MODELS).map(([name, s]) => ({ name, id: s.id, note: s.note || '', refs: Boolean(s.refs) }));
+}
 
 export function resolveKey(cfg = {}) {
   return process.env.ARK_API_KEY || process.env.SEEDREAM_API_KEY || cfg.apiKey || '';
@@ -36,7 +71,7 @@ export function resolveModel(name, cfg = {}) {
 export async function generate({
   prompt,
   size = '2K',
-  model = 'seedream-4.0',
+  model = 'seedream-5.5',
   refs = [],
   n = 1,
   seed,
@@ -59,7 +94,7 @@ export async function generate({
   if (Number.isFinite(Number(seed))) body.seed = Number(seed);
   if (refs.length) {
     const spec = MODELS[model];
-    if (spec && !spec.refs) throw new Error(`${model} 不支持参考图，图生图请用 seedream-4.0`);
+    if (spec && !spec.refs) throw new Error(`${model} 不支持参考图，图生图请换 seedream-5.5 / 5.0 pro / 5.0 flash / 4.0`);
     body.image = refs.map((r) => (/^https?:\/\//i.test(r) ? r : toDataUri(r)));
   }
 

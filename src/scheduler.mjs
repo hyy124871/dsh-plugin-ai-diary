@@ -62,6 +62,10 @@ export async function runOnce(root, opts = {}) {
   try {
     const settings = loadSettings(root);
     applyEnv(settings);
+    // 总开关默认关：定时/自动跑要它开着，面板上手动点「立即出片」不受限
+    if (opts.reason === 'schedule' && settings.enabled !== true) {
+      return { ok: false, skipped: '插件总开关是关的（对话框左上角或面板里打开后再走定时）' };
+    }
     const sc = { ...settings.schedule, ...(opts.overrides || {}) };
 
     const topics = await import('./topics.mjs');
@@ -377,6 +381,8 @@ export async function publishLatest(root, { reason = 'schedule' } = {}) {
 
 export function tick(root, onLog) {
   const settings = loadSettings(root);
+  // 总开关关着时，定时出片和定时发布都不动
+  if (settings.enabled !== true) return null;
   // 定时发布先看：它只碰「成片库」，不重新渲染
   if (publishDue(settings)) {
     return publishLatest(root, { reason: 'schedule' }).catch(() => null);
