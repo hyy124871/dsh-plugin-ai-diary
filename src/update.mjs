@@ -11,6 +11,7 @@ import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { execFileSync, execSync } from 'node:child_process';
+import { backupSettings, healSettings } from './settings.mjs';
 
 const API = 'https://api.github.com';
 
@@ -441,6 +442,8 @@ export async function autoUpdate(root, { profile, repo, install = true } = {}) {
   if (!install) return { ok: true, stage: 'downloaded', mode, ...c, ...d, targets };
 
   writeState({ stage: 'install', bytes: d.bytes, via: d.via, mode });
+  // 装之前先把设置拍一张快照：key / 模型 / 音色都在里面，更新后自己回填
+  const settingsBackup = backupSettings(root, 'update');
   const results = [];
   for (const p of targets) {
     try {
@@ -452,6 +455,8 @@ export async function autoUpdate(root, { profile, repo, install = true } = {}) {
     }
   }
   const allOk = results.every((r) => r.ok);
+  // 装完再对一遍设置：哪个 key 被清空了就从刚才的快照补回来
+  const heal = allOk ? healSettings(root, settingsBackup) : { healed: [], keys: 0 };
   writeState({
     stage: allOk ? 'installed' : 'install-failed',
     mode,
@@ -459,9 +464,11 @@ export async function autoUpdate(root, { profile, repo, install = true } = {}) {
     error: allOk ? undefined : String(results.find((r) => !r.ok)?.error || '安装失败').slice(0, 300),
     installedVersion: allOk ? c.latest : undefined,
     installedAt: allOk ? new Date().toISOString() : undefined,
+    healed: heal.keys,
+    settingsBackup: settingsBackup || undefined,
     lastAttemptAt: new Date().toISOString(),
     lastAttemptOk: allOk,
     targets: results.map((r) => ({ profile: r.profile, ok: r.ok })),
   });
-  return { ok: allOk, stage: 'installed', mode, ...c, ...d, targets: results, needsRestart: allOk };
+  return { ok: allOk, stage: 'installed', mode, ...c, ...d, targets: results, needsRestart: allOk, settingsBackup, healed: heal };
 }

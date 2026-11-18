@@ -86,7 +86,8 @@ export const DEFAULTS = {
     autoRegister: true,
   },
   // 写台词用的文本模型：dashscope（千问）/ ark（豆包）/ off（只用本地拼装）
-  text: { provider: 'dashscope', model: 'qwen-plus' },
+  // economy=true：只有「写台词」这一步调模型，同一批评论当天只问一次；抓评论、回评论、发布都不花 token
+  text: { provider: 'dashscope', model: 'qwen-plus', economy: true },
 };
 
 function isPlain(v) {
@@ -148,6 +149,75 @@ export function saveSettings(root, patch) {
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(file, JSON.stringify(next, null, 2) + '\n', 'utf8');
   return { ...next, __file: file };
+}
+
+/**
+ * 更新前给设置文件拍一张快照：key、模型、音色、定时全在里面。
+ * 落成 settings.<tag>.backup.json，不动原文件。
+ */
+export function backupSettings(root, tag = 'update') {
+  const file = settingsPath(root);
+  try {
+    if (!fs.existsSync(file)) return null;
+    const out = path.join(path.dirname(file), `settings.${tag}.backup.json`);
+    fs.copyFileSync(file, out);
+    return out;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * 更新后自愈：当前设置里 key（或模型、音色）被清空了，就从最近的备份回填。
+ * 返回真正补回来的字段，方便面板/日志显示「已从备份恢复 3 个 key」。
+ */
+export function healSettings(root, bakFile) {
+  const file = settingsPath(root);
+  const read = (p) => {
+    try {
+      return JSON.parse(fs.readFileSync(p, 'utf8')) || {};
+    } catch {
+      return {};
+    }
+  };
+  const bak = read(bakFile || path.join(path.dirname(file), 'settings.update.backup.json'));
+  const cur = read(file);
+  if (!bak || !Object.keys(bak).length) return { healed: [], keys: 0 };
+
+  const patch = {};
+  const healed = [];
+  const curKeys = { ...(cur.keys || {}) };
+  const bakKeys = bak.keys || {};
+  let n = 0;
+  for (const [field, v] of Object.entries(bakKeys)) {
+    const want = String(v || '').trim();
+    if (want && !String(curKeys[field] || '').trim()) {
+      curKeys[field] = want;
+      n += 1;
+      healed.push('keys.' + field);
+    }
+  }
+  if (n) patch.keys = curKeys;
+
+  // 模型/音色也一起兜：被重置成默认时回填用户选过的
+  for (const sec of ['tts', 'image', 'video']) {
+    const b = isPlain(bak[sec]) ? bak[sec] : null;
+    const c = isPlain(cur[sec]) ? cur[sec] : {};
+    if (!b) continue;
+    const secPatch = {};
+    for (const [k, v] of Object.entries(b)) {
+      if (v === undefined || v === '') continue;
+      if (!c[k]) {
+        secPatch[k] = v;
+        healed.push(sec + '.' + k);
+      }
+    }
+    if (Object.keys(secPatch).length) patch[sec] = merge(c, secPatch);
+  }
+
+  if (!Object.keys(patch).length) return { healed: [], keys: 0 };
+  saveSettings(root, patch);
+  return { healed, keys: n };
 }
 
 /** 把文件里的 key 灌进环境变量（已有的环境变量优先，绝不覆盖） */

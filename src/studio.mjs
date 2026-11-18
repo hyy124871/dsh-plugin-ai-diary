@@ -6,6 +6,7 @@
 //   logs/publish.json 每次投稿的时间与结果
 //   logs/comments.json 最近一次拉到的评论快照（自主选材的输入）
 
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -422,17 +423,28 @@ function heuristicTopic(root, comments = []) {
 
 /**
  * 自主选材：让模型读最近的评论，自己决定这一集讲什么，不套 data/topics.json。
+ * 省 token：只有这一步会调模型（评论抓取、回复、发布都不调），
+ * 且同一批评论 + 同一天只问一次，结果落在 plan-cache.json 里复用。
  * @returns {{topic:object, how:string, why?:string, error?:string}}
  */
 export async function planTopic(root, { useModel = true } = {}) {
   const cache = listCommentsCache();
   const comments = (cache && cache.comments) || [];
+  const st = loadSettings(root);
+  const economy = !st.text || st.text.economy !== false;
+  const fp = planFingerprint(comments);
+  if (useModel && economy) {
+    const hit = readPlanCache(fp);
+    if (hit) return { topic: hit.topic, how: 'cache', why: hit.why };
+  }
+
   if (useModel) {
     const llm = await import('./llm.mjs');
     const sys =
       '你是 AI 角色日记竖屏短剧的编剧。主角是 DeepSeek 的拟人形象：蓝鲸娘，一个每天都在扣费、余额越来越少的赛博打工人。' +
       '风格克制、自嘲、有点暖，不说教，不喊口号。';
-    const recent = comments.slice(0, 12).map((c, i) => `${i + 1}. ${c.uname || '匿名'}：${String(c.text).slice(0, 80)}`).join('\n');
+    // 只取 10 条、每条 56 字：够看出观众在聊什么，又不把整屏评论塞进上下文
+    const recent = comments.slice(0, 10).map((c, i) => `${i + 1}. ${c.uname || '匿名'}：${String(c.text).slice(0, 56)}`).join('\n');
     const user = [
       recent ? `B 站观众最近的评论：\n${recent}` : '这次没有拉到评论，请自己找一个「余额又少了」的具体小事来写。',
       '',
@@ -441,7 +453,7 @@ export async function planTopic(root, { useModel = true } = {}) {
       '"beats":[{"mood":"calm|low|panic|excited|relief","text":"台词"}]}',
       '要求：4-6 句，每句 8-18 个汉字；第一句就是钩子，最后一句落回「余额/生存/记录」；不要复制评论原文整段。',
     ].join('\n');
-    const r = await llm.chat(root, { system: sys, user, maxTokens: 700, temperature: 0.85 });
+    const r = await llm.chat(root, { system: sys, user, maxTokens: 480, temperature: 0.85 });
     if (r.ok) {
       const j = llm.parseJsonLoose(r.text);
       if (j && Array.isArray(j.beats) && j.beats.length >= 3) {
@@ -450,20 +462,19 @@ export async function planTopic(root, { useModel = true } = {}) {
           .map((b) => ({ mood: MOODS.includes(b.mood) ? b.mood : 'calm', text: String(b.text || '').trim().slice(0, 40) }))
           .filter((b) => b.text);
         if (beats.length >= 3) {
-          return {
-            topic: {
-              id: 'free-' + Date.now().toString(36),
-              title: String(j.title || '自主选题').slice(0, 20),
-              character: j.character || 'deepseek',
-              day: Number(j.day) || 1,
-              balance: Number(j.balance) || 12.4,
-              tags: ['AI', 'AI角色', 'DeepSeek', '竖屏短剧', 'AI日记'],
-              beats,
-              planHow: 'model:' + (r.provider || ''),
-            },
-            how: 'model',
-            why: pickedWhy(comments),
+          const topic = {
+            id: 'free-' + Date.now().toString(36),
+            title: String(j.title || '自主选题').slice(0, 20),
+            character: j.character || 'deepseek',
+            day: Number(j.day) || 1,
+            balance: Number(j.balance) || 12.4,
+            tags: ['AI', 'AI角色', 'DeepSeek', '竖屏短剧', 'AI日记'],
+            beats,
+            planHow: 'model:' + (r.provider || ''),
           };
+          const why = pickedWhy(comments);
+          if (economy) writePlanCache(fp, topic, why);
+          return { topic, how: 'model', why };
         }
       }
       return { topic: heuristicTopic(root, comments), how: 'heuristic', error: '模型输出不像 JSON，已退回本地拼装' };
@@ -471,6 +482,29 @@ export async function planTopic(root, { useModel = true } = {}) {
     return { topic: heuristicTopic(root, comments), how: 'heuristic', error: r.error };
   }
   return { topic: heuristicTopic(root, comments), how: 'heuristic' };
+}
+
+/** 选题缓存指纹：这批评论的前 20 条 + 当天日期（换天就重新问一次） */
+function planFingerprint(comments) {
+  const day = new Date().toISOString().slice(0, 10);
+  const seed = comments.slice(0, 20).map((c) => String(c.text || '').slice(0, 40)).join('|') + '#' + day;
+  return crypto.createHash('sha1').update(seed).digest('hex').slice(0, 16);
+}
+
+function readPlanCache(fp) {
+  const c = readJson('plan-cache.json', null);
+  if (!c || c.fp !== fp || !c.topic) return null;
+  const age = Date.now() - new Date(c.at || 0).getTime();
+  if (!(age >= 0) || age > 12 * 3600 * 1000) return null;
+  return c;
+}
+
+function writePlanCache(fp, topic, why) {
+  try {
+    writeJson('plan-cache.json', { fp, at: new Date().toISOString(), topic, why });
+  } catch {
+    /* 写不进去就下次再问 */
+  }
 }
 
 function pickedWhy(comments) {

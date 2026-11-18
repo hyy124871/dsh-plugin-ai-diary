@@ -1,6 +1,6 @@
 {
   "name": "dsh-plugin-ai-diary",
-  "version": "0.9.5",
+  "version": "0.9.6",
   "description": "AI 日记工坊：素材库 / 成片管理 / 发布与评论 / DeepSeek 自主选材 / 定时出片与定时发布，选题 + 本地渲染引擎（6 套模板 / 6 套动态底板 / 8 角色共 126 套立绘）+ 三家 TTS 配音 + MiniMax H3 视频底板 + 哔哩哔哩客户端投稿与评论自动化（内置电脑操控引擎），为 9:16 竖屏 AI 角色短剧而生",
   "icon": "./assets/icon.svg",
   "displayName": "AI 日记工坊",
