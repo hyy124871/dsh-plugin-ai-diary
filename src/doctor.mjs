@@ -201,7 +201,18 @@ export async function runDoctor(root = ROOT, { online = false } = {}) {
       sch.enabled ? '' : '在设置面板打开，或 node bin/ai-diary.mjs schedule --action enable --at 20:30',
     ),
   );
-  if (sch.lastRun) checks.push(row('定时', '上次执行', 'skip', `${sch.lastRun}${sch.lastResult ? ' · ' + String(sch.lastResult).slice(0, 60) : ''}`));
+  if (sch.lastRun) {
+    // lastResult 是对象，直接 String() 会打出 [object Object]
+    const r = sch.lastResult && typeof sch.lastResult === 'object' ? sch.lastResult : null;
+    let brief = '';
+    if (r) {
+      brief = r.ok ? '成功' : '失败' + (r.error ? '：' + String(r.error).slice(0, 40) : '');
+      if (Array.isArray(r.warnings) && r.warnings.length) brief += ' · ' + r.warnings.length + ' 条提醒';
+    } else if (sch.lastResult) {
+      brief = String(sch.lastResult).slice(0, 60);
+    }
+    checks.push(row('定时', '上次执行', r && r.ok === false ? 'warn' : 'skip', `${sch.lastRun}${brief ? ' · ' + brief : ''}`));
+  }
 
   /* ---------- 在线（可选） ---------- */
   if (online) {
