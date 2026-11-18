@@ -1,6 +1,6 @@
 # 安装说明 · dsh-plugin-ai-diary 0.7.4
 
-「AI 日记工坊」是 **DeepSeek Harness（dsh）** 的插件：题材 → 剧本 → 9:16 竖屏成片 → 哔哩哔哩客户端发布，整条链装成 17 个工具（15 个 ai_diary_* + 2 个 pc_*，含客户端投稿 / 评论 / 素材选配与一屏体检）。画面由本地渲染引擎（@napi-rs/canvas + ffmpeg）逐帧合成，**不烧视频生成额度**。
+「AI 日记工坊」是 **DeepSeek Harness（dsh）** 的插件：题材 → 剧本 → 16:9 横屏成片（可切竖屏）→ 哔哩哔哩客户端发布，整条链装成 17 个工具（15 个 ai_diary_* + 2 个 pc_*，含客户端投稿 / 评论 / 素材选配与一屏体检）。画面由本地渲染引擎（@napi-rs/canvas + ffmpeg）逐帧合成，**不烧视频生成额度**。
 
 ---
 
@@ -118,7 +118,7 @@ node bin/ai-diary.mjs render --preview 7 --script out\day23-audit.json --out out
 |---|---|
 | `ai_diary_topics` | 列题材（13 条，带角色/Day/余额/模板） |
 | `ai_diary_plan` | 题材 → 剧本 JSON（分镜时长全本地算，几乎不耗 token） |
-| `ai_diary_render` | 剧本 → 9:16 MP4 / PNG 帧序列（`preview_seconds` 出试片） |
+| `ai_diary_render` | 剧本 → 16:9 横屏 MP4（可切竖屏）/ PNG 帧序列（`preview_seconds` 出试片） |
 | `ai_diary_voice` | 逐镜配音（小米 MiMo / 千问 Qwen-TTS / MiniMax T2A 三选一），按镜头时长对齐后混流 |
 | `ai_diary_hailuo` | MiniMax H3 生成 4–15s 动态底板视频，默认 dry_run 不扣费 |
 | `ai_diary_assets` | 体检立绘/背景，缺什么给什么生图提示词 |
