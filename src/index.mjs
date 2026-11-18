@@ -1267,6 +1267,10 @@ export function apply(ctx, config = {}) {
                 video: st.video || {},
                 tts: st.tts || {},
                 text: st.text || {},
+                // 设置页「发布策略」那三个开关读的就是这一行。
+                // 之前 snapshot 漏了 publish，前端 cfg.publish 永远是 undefined，
+                // 点击只会写进 settings.json 而读不回来，看起来就是「点不动」。
+                publish: st.publish || {},
                 keys,
                 // 面板下拉要的可选型号清单（生图 / 配音 / 写台词）
                 models: {
