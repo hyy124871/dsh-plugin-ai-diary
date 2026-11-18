@@ -12,7 +12,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { DEFAULTS, timeline, renderEpisode, findFfmpeg } from './engine.mjs';
+import { DEFAULTS, timeline, renderEpisode, resolveSize, findFfmpeg } from './engine.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -89,6 +89,7 @@ export async function renderEpisodeParallel(script, opts = {}) {
   const started = Date.now();
   let done = 0;
   const offsets = segs.map((s) => s.f0);
+  const { width: segW, height: segH } = resolveSize(script, opts);
   const progress = (segIdx, ratio) => {
     if (!opts.onProgress) return;
     // 用帧号近似总进度：按各段起点加权
@@ -107,10 +108,11 @@ export async function renderEpisodeParallel(script, opts = {}) {
             '--frame-start', String(s.f0),
             '--frame-end', String(s.f1),
             '--fps', String(opts.fps || script.output?.fps || DEFAULTS.fps),
-            '--width', String(opts.width || script.output?.width || DEFAULTS.width),
-            '--height', String(opts.height || script.output?.height || DEFAULTS.height),
+            '--width', String(segW),
+            '--height', String(segH),
             '--scale', String(opts.scale ?? script.output?.scale ?? DEFAULTS.scale),
           ];
+          if (opts.orientation) args.push('--orientation', String(opts.orientation));
           if (opts.template) args.push('--template', String(opts.template));
           if (opts.look) args.push('--look', String(opts.look));
           if (opts.maxSeconds) args.push('--max-seconds', String(opts.maxSeconds));

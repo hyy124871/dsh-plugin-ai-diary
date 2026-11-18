@@ -15,6 +15,9 @@ import { backupSettings, healSettings } from './settings.mjs';
 
 const API = 'https://api.github.com';
 
+/** 更新互斥：面板连点两下会同时下载并解压同一个目录 */
+let updating = false;
+
 export const DEFAULT_CONFIG = {
   repo: '',
   asset: 'dsh-plugin-ai-diary-*.tgz',
@@ -391,6 +394,10 @@ export function installIntoProfile(root, profile, tgz) {
 /**
  * 代码包覆盖安装：把代码包解到既有的 node_modules 目录，素材保持不动。
  * 只适用于「这个 profile 已经装过本插件」的环境；没装过就退回完整包。
+ *
+ * 覆盖前先把「包里会碰到的那几个文件」备份一份，解压失败就回滚：
+ * 之前没有这层保护，tar 中途失败（包损坏/磁盘满/文件被占用）会把插件
+ * 留在半更新状态，下次启动直接加载不起来。
  */
 export function installCodeIntoProfile(profile, tgz) {
   const instDir = path.join(profile, 'node_modules', 'dsh-plugin-ai-diary');
@@ -401,8 +408,55 @@ export function installCodeIntoProfile(profile, tgz) {
     from = JSON.parse(fs.readFileSync(pkgFile, 'utf8')).version || null;
   } catch {}
 
+  // 包里会覆盖哪些文件
+  let entries = [];
+  try {
+    entries = String(execFileSync('tar', ['-tzf', tgz], { stdio: 'pipe', timeout: 60000 }))
+      .split('\n')
+      .map((s) => s.trim())
+      .filter(Boolean);
+  } catch {
+    entries = [];
+  }
+
+  // 备份现有同名文件
+  const backupDir = path.join(instDir, '.update-backup-' + Date.now());
+  const backed = [];
+  for (const entry of entries) {
+    if (!entry.startsWith('package/')) continue;
+    const rel = entry.slice('package/'.length);
+    if (!rel || rel.endsWith('/')) continue;
+    const src = path.join(instDir, rel);
+    try {
+      if (!fs.existsSync(src) || !fs.statSync(src).isFile()) continue;
+      const dst = path.join(backupDir, rel);
+      fs.mkdirSync(path.dirname(dst), { recursive: true });
+      fs.copyFileSync(src, dst);
+      backed.push(rel);
+    } catch {
+      /* 单个文件备份失败不阻塞安装，但记不下来就无法回滚 */
+    }
+  }
+
   fs.mkdirSync(instDir, { recursive: true });
-  execFileSync('tar', ['-xzf', tgz, '-C', instDir, '--strip-components=1'], { stdio: 'pipe', timeout: 120000 });
+  try {
+    execFileSync('tar', ['-xzf', tgz, '-C', instDir, '--strip-components=1'], { stdio: 'pipe', timeout: 120000 });
+  } catch (e) {
+    for (const rel of backed) {
+      try {
+        fs.copyFileSync(path.join(backupDir, rel), path.join(instDir, rel));
+      } catch {
+        /* 尽力回滚 */
+      }
+    }
+    try {
+      fs.rmSync(backupDir, { recursive: true, force: true });
+    } catch {}
+    throw new Error('解压失败，已回滚到更新前的文件：' + String((e && e.message) || e).slice(0, 200));
+  }
+  try {
+    fs.rmSync(backupDir, { recursive: true, force: true });
+  } catch {}
 
   let to = null;
   try {
@@ -416,6 +470,10 @@ export function installCodeIntoProfile(profile, tgz) {
  * install=false 只到下载（试运行）；装完必须重启 Harness 才生效。
  */
 export async function autoUpdate(root, { profile, repo, install = true } = {}) {
+  // 面板连点两下「升级」会同时解压同一个目录，把包解成半半拉拉的两份
+  if (updating) return { ok: false, stage: 'busy', reason: '已经在更新了，等这次跑完' };
+  updating = true;
+  try {
   const c = await checkUpdate(root, { repo });
   writeState({ ok: c.ok, current: c.current, latest: c.latest, hasUpdate: Boolean(c.hasUpdate), reason: c.reason || null });
   if (!c.ok) return { ok: false, stage: 'check', ...c };
@@ -498,4 +556,7 @@ export async function autoUpdate(root, { profile, repo, install = true } = {}) {
     settingsBackup,
     healed: heal,
   };
+  } finally {
+    updating = false;
+  }
 }

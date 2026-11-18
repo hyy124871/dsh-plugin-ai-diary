@@ -14,6 +14,8 @@ import { loadSettings, saveSettings, applyEnv } from './settings.mjs';
 
 const TICK_MS = 30_000;
 let busy = false;
+// 发布单独一把锁：出片（runOnce）与发布可能同时被面板点，互不阻塞但各自防重入
+let publishing = false;
 let timer = null;
 
 function stamp(d = new Date()) {
@@ -115,6 +117,8 @@ export async function runOnce(root, opts = {}) {
         out,
         template: sc.template || undefined,
         plate: sc.plate ? path.resolve(root, sc.plate) : undefined,
+        orientation: settings.render?.orientation,
+        scale: Number(settings.render?.scale) || undefined,
         onProgress: () => {},
       });
       video = out;
@@ -319,6 +323,10 @@ export function publishDue(settings, now = new Date()) {
  * 发布策略仍服从 settings.publish（dryRun / autoFill / autoSubmit），不自作主张点投稿。
  */
 export async function publishLatest(root, { reason = 'schedule' } = {}) {
+  // 连点两下「立即发布」会开两个并发发布：两次上传、两次点投稿，对外不可逆
+  if (publishing) return { ok: false, skipped: '正在发布中，已忽略这次重复请求' };
+  publishing = true;
+  try {
   const studio = await import('./studio.mjs');
   const settings = loadSettings(root);
   applyEnv(settings);
@@ -333,7 +341,7 @@ export async function publishLatest(root, { reason = 'schedule' } = {}) {
   const meta = {
     title: film.title,
     desc: `AI 角色日记 第 ${film.episode} 集。画面由本地渲染引擎生成，未使用视频生成模型。`,
-    tags: ['AI', 'AI角色', 'DeepSeek', '竖屏短剧', 'AI日记'],
+    tags: ['AI', 'AI角色', 'DeepSeek', 'AI短剧', 'AI日记'],
   };
 
   const steps = [];
@@ -388,6 +396,9 @@ export async function publishLatest(root, { reason = 'schedule' } = {}) {
   saveSettings(root, { schedule: { lastPublishRun: todayKey(new Date()) } });
 
   return { ok: true, episode: film.episode, title: meta.title, submitted, steps, warnings };
+  } finally {
+    publishing = false;
+  }
 }
 
 export function tick(root, onLog) {

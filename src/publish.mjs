@@ -115,7 +115,7 @@ function findFfmpegQuick() {
 }
 
 /**
- * 上传前自检：分辨率、竖屏比例、时长、体积。
+ * 上传前自检：分辨率、画面比例、时长、体积。
  * 1080p 之后这条最有用 —— 别把旧 720p 的片子当新规格投出去，白掉一次推荐。
  */
 export function preflight(video) {
@@ -140,8 +140,11 @@ export function preflight(video) {
   const issues = [];
   if (!width || !height) issues.push('读不到分辨率');
   else {
-    if (Math.abs(height / width - 16 / 9) > 0.08) issues.push(`不是 9:16 竖屏（${width}×${height}）`);
-    if (width < 1080) issues.push(`宽度只有 ${width}，不到 1080 —— 旧片重投会掉清晰度`);
+    const ar = width / height;
+    const is169 = Math.abs(ar - 16 / 9) <= 0.08;
+    const is916 = Math.abs(ar - 9 / 16) <= 0.05;
+    if (!is169 && !is916) issues.push(`画面比例不是 16:9 横屏或 9:16 竖屏（${width}×${height}）`);
+    if (Math.min(width, height) < 720) issues.push(`分辨率只有 ${width}×${height}，不到 720p —— 旧片重投会掉清晰度`);
   }
   if (seconds !== null && seconds < 8) issues.push(`时长只有 ${seconds}s，太短容易被判低质`);
   if (mb > 8000) issues.push(`体积 ${Math.round(mb)}MB，超过 B 站单文件上限（约 8GB）`);

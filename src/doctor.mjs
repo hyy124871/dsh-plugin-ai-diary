@@ -174,18 +174,19 @@ export async function runDoctor(root = ROOT, { online = false } = {}) {
   } catch {}
   checks.push(row('内容', '题材库', topicCount ? 'ok' : 'fail', `${topicCount} 条`));
 
-  // 成片规格：默认 1.5× 超采样（逻辑 720×1280 → 真实 1080×1920），渲染前就知道会出多大
+  // 成片规格：默认 1.5× 超采样（横屏逻辑 1280×720 → 真实 1920×1080；竖屏可把 output 写成 720×1280）
   const spec = settings.render || {};
   const ss = Number(spec.scale ?? 1.5) || 1.5;
-  const w = Math.round(720 * ss);
-  const h = Math.round(1280 * ss);
+  const landscape = (spec.orientation ?? 'landscape') !== 'portrait';
+  const w = Math.round((landscape ? 1280 : 720) * ss);
+  const h = Math.round((landscape ? 720 : 1280) * ss);
   const fps = Number(spec.fps ?? 24) || 24;
   checks.push(
     row(
       '内容',
       '成片规格',
       'ok',
-      `${w}×${h} @${fps}fps（超采样 ${ss}×）`,
+      `${w}×${h} @${fps}fps（${landscape ? '16:9 横屏' : '9:16 竖屏'}，超采样 ${ss}×）`,
       ss < 1.5 ? '想要 1080p 就把 render.scale 设回 1.5（或用 --scale 1.5）' : '',
     ),
   );

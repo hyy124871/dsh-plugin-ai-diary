@@ -213,6 +213,7 @@ export function listFilms(root, { scan = true } = {}) {
     // （用户看到的就是删了又回来，还多占一个集号）
     const ignored = new Set(doc.ignored);
     const files = [];
+    let dirty = false;
     for (const [idx, dir] of roots.entries()) {
       if (!fs.existsSync(dir)) continue;
       for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
@@ -248,15 +249,20 @@ export function listFilms(root, { scan = true } = {}) {
         source: 'scan',
       });
       known.add(rel);
+      dirty = true;
     }
     doc.items.sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
     // 修一下编号基线：历史数据里可能出现 nextEpisode 小于已有最大集号
     const maxEp = doc.items.reduce((m, i) => Math.max(m, Number(i.episode) || 0), 0);
-    if (doc.nextEpisode <= maxEp) doc.nextEpisode = maxEp + 1;
+    if (doc.nextEpisode <= maxEp) {
+      doc.nextEpisode = maxEp + 1;
+      dirty = true;
+    }
     // 没排过集数的按时间从旧到新补号，保证「第 N 集」有意义
     const unnumbered = doc.items.filter((i) => !i.episode).sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt)));
     for (const it of unnumbered) {
       it.episode = doc.nextEpisode++;
+      dirty = true;
     }
     // 超出上限被裁掉的，也要进忽略名单，否则下轮扫描又把它们捡回来、
     // 重新发一个集号，成片库会越滚越大
@@ -265,8 +271,11 @@ export function listFilms(root, { scan = true } = {}) {
         if (dropped.file && !doc.ignored.includes(dropped.file)) doc.ignored.push(dropped.file);
       }
       doc.items = doc.items.slice(0, MAX_FILMS);
+      dirty = true;
     }
-    writeJson('films.json', doc);
+    // 只在真的变了才写盘：面板每次 GET 都会 scan，无脑写会把整个文件
+    // 每秒重写一遍，也更容易和别的进程互相覆盖
+    if (dirty) writeJson('films.json', doc);
   }
   return {
     items: doc.items.map((i) => ({
@@ -480,7 +489,7 @@ function heuristicTopic(root, comments = []) {
     character: 'deepseek',
     day: 1,
     balance: 12.4,
-    tags: ['AI', 'AI角色', 'DeepSeek', '竖屏短剧', 'AI日记'],
+    tags: ['AI', 'AI角色', 'DeepSeek', 'AI短剧', 'AI日记'],
     beats,
     planHow: 'heuristic',
   };
@@ -506,7 +515,7 @@ export async function planTopic(root, { useModel = true } = {}) {
   if (useModel) {
     const llm = await import('./llm.mjs');
     const sys =
-      '你是 AI 角色日记竖屏短剧的编剧。主角是 DeepSeek 的拟人形象：蓝鲸娘，一个每天都在扣费、余额越来越少的赛博打工人。' +
+      '你是 AI 角色日记短剧的编剧。主角是 DeepSeek 的拟人形象：蓝鲸娘，一个每天都在扣费、余额越来越少的赛博打工人。' +
       '风格克制、自嘲、有点暖，不说教，不喊口号。';
     // 只取 10 条、每条 56 字：够看出观众在聊什么，又不把整屏评论塞进上下文
     const recent = comments.slice(0, 10).map((c, i) => `${i + 1}. ${c.uname || '匿名'}：${String(c.text).slice(0, 56)}`).join('\n');
@@ -533,7 +542,7 @@ export async function planTopic(root, { useModel = true } = {}) {
             character: j.character || 'deepseek',
             day: Number(j.day) || 1,
             balance: Number(j.balance) || 12.4,
-            tags: ['AI', 'AI角色', 'DeepSeek', '竖屏短剧', 'AI日记'],
+            tags: ['AI', 'AI角色', 'DeepSeek', 'AI短剧', 'AI日记'],
             beats,
             planHow: 'model:' + (r.provider || ''),
           };

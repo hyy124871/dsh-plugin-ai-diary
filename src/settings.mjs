@@ -31,10 +31,11 @@ export const DEFAULTS = {
   keys: { mimo: '', dashscope: '', deepseek: '', minimax: '', ark: '', github: '', bili: '' },
   tts: { provider: 'xiaomi', model: '', voice: '' },
   comfy: { base: 'http://127.0.0.1:8188' },
-  // 成片规格：逻辑布局固定 720×1280，scale 是超采样倍数 → 1.5 出 1080×1920
+  // 成片规格：orientation=landscape 出 16:9（逻辑 1280×720，1.5× 超采样 → 1920×1080）；
+  // portrait 回竖屏 9:16（逻辑 720×1280 → 1080×1920）
   // workers 是并行渲染段数，0 = 自动（核数一半，最多 4 段）
   // accelerator：cpu=libx264（画质最好）| gpu=硬件编码（NVENC/QSV/AMF，快数倍）| auto=有硬件就用
-  render: { scale: 1.5, fps: 24, workers: 0, accelerator: 'auto' },
+  render: { orientation: 'landscape', scale: 1.5, fps: 24, workers: 0, accelerator: 'auto' },
   // 图片模型：Seedream（火山方舟）。5.5 是 2026-10 新发布的一代，原生 RGBA、百轮编辑
   image: { model: 'seedream-5.5', size: '2K' },
   // H3 默认档位：日常出片用 Highspeed，追求画质手动切 H3 + 2K

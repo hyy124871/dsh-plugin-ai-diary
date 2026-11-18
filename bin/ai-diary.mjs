@@ -136,7 +136,8 @@ async function main() {
       out: path.resolve(out),
       pngDir: png ? path.resolve('out', `${s.id}-frames`) : null,
       fps: num(flags.fps) || Number(st.render?.fps) || undefined,
-      scale: num(flags.scale) || Number(st.render?.scale) || undefined, // 默认 1.5 → 1080×1920；1 → 720p；2 → 1440×2560
+      scale: num(flags.scale) || Number(st.render?.scale) || undefined, // 默认 1.5 → 横屏 1920×1080 / 竖屏 1080×1920；1 → 720p；2 → 2.5K
+      orientation: flags.orientation ? String(flags.orientation) : (st.render?.orientation || 'landscape'),
       workers: num(flags.workers),
       workerSetting: Number(st.render?.workers) || 0,
       accelerator: flags.accelerator ? String(flags.accelerator) : String(st.render?.accelerator || 'auto'),

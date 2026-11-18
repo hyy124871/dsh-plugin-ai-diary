@@ -246,7 +246,7 @@ export const Config = Schema
       base: Schema.string().description('本机 ComfyUI 地址，默认 http://127.0.0.1:8188'),
     }).description('本地模型'),
     render: Schema.object({
-      scale: Schema.number().description('成片超采样倍数：1.5 = 1080×1920（默认），1 = 720p，2 = 1440×2560'),
+      scale: Schema.number().description('成片超采样倍数：1.5 = 横屏 1920×1080 / 竖屏 1080×1920（默认），1 = 720p，2 = 2.5K'),
       fps: Schema.number().description('成片帧率，默认 24'),
       workers: Schema.number().description('并行渲染段数，0=自动（CPU 模式按核数一半、最多 4 段；GPU 模式固定单片）'),
       accelerator: Schema.string().description('编码算力：cpu=纯 CPU（libx264，画质最好）｜gpu=用显卡硬件编码（NVENC/QSV/AMF，快数倍）｜auto=有显卡自动用（默认）'),
@@ -361,7 +361,7 @@ export function auditAssets({ character, style } = {}) {
     else need.push({ kind: 'background', file: f });
   }
   const promptFor = (item) => item.kind === 'background'
-    ? `9:16 竖屏背景插画，主题「${item.file.replace('.png', '')}」，深色氛围，留出中下部人物站位空间，四角压暗，画面内不要任何文字与人物，纯背景。`
+    ? `16:9 横屏背景插画，主题「${item.file.replace('.png', '')}」，深色氛围，留出中下部人物站位空间，四角压暗，画面内不要任何文字与人物，纯背景。`
     : `${item.character} 的 ${item.style === 'chibi' ? 'Q 版二头身' : '八头身成人'}立绘，纯白 #FFFFFF 背景，不要圆角卡片/边框/投影，全身居中站立，四周边距均匀，输出 3:4；用于抠白底后合成到短剧画面。`;
   return {
     ready: need.length === 0,
@@ -450,7 +450,7 @@ function renderTool() {
   return defineTool({
     name: 'ai_diary_render',
     description:
-      '用本地渲染引擎把剧本 JSON 渲染成 9:16 竖屏 MP4（背景推移、立绘呼吸浮动、余额 HUD 递减、逐字字幕、星点、情绪光、片头片尾卡，libx264 编码）。纯确定性绘制，不调用视频生成模型，也不消耗生成额度；同一份剧本每次结果一致。传 png:true 改为导出 PNG 帧序列；传 preview_seconds 只渲前面几秒，用来快速看构图。',
+      '用本地渲染引擎把剧本 JSON 渲染成 MP4（背景推移、立绘呼吸浮动、余额 HUD 递减、逐字字幕、星点、情绪光、片头片尾卡，libx264 编码）。默认 16:9 横屏 1920×1080，设置里 render.orientation=portrait 可回竖屏 1080×1920。纯确定性绘制，不调用视频生成模型，也不消耗生成额度；同一份剧本每次结果一致。传 png:true 改为导出 PNG 帧序列；传 preview_seconds 只渲前面几秒，用来快速看构图。',
     parameters: {
       script: { type: 'string', required: true, description: '剧本 JSON 路径（ai_diary_plan 的产物）' },
       out: { type: 'string', description: '输出 mp4 路径，默认 out/<id>.mp4' },
@@ -460,9 +460,10 @@ function renderTool() {
       look: { type: 'string', description: '立绘模样：v1=原版，v2=居家套装，v3=外出套装，v4/v5=动作姿势，v6=水手服通勤，v7=冬日居家，v8=运动，v9=夏日祭（deepseek 独有）；也可传 variants 目录里任意后缀，缺图自动回退原版' },
       voice: { type: 'string', description: '顺手配音并混流：传音色名（如 冰糖 / Cherry / female-shaonv）或 design；provider 省略走 config/voice.json' },
       provider: { type: 'string', enum: ['xiaomi', 'qwen', 'minimax'], description: '配音服务商：xiaomi=小米 MiMo，qwen=千问 Qwen-TTS，minimax=MiniMax T2A' },
-      width: { type: 'number', description: '覆盖逻辑宽度，默认 720' },
-      height: { type: 'number', description: '覆盖逻辑高度，默认 1280' },
-      scale: { type: 'number', description: '超采样倍数，默认 1.5（紧凑 720×1280 布局 → 真实输出 1080×1920）；传 1 退回 720p，传 2 出 1440×2560' },
+      width: { type: 'number', description: '覆盖逻辑宽度，默认 1280（横屏）' },
+      height: { type: 'number', description: '覆盖逻辑高度，默认 720（横屏）' },
+      orientation: { type: 'string', enum: ['landscape', 'portrait'], description: '画面方向：landscape=16:9 横屏（默认，1280×720 → 1920×1080），portrait=9:16 竖屏（720×1280 → 1080×1920）' },
+      scale: { type: 'number', description: '超采样倍数，默认 1.5（横屏 1280×720 布局 → 真实输出 1920×1080）；传 1 退回 720p，传 2 出 2560×1440' },
       fps: { type: 'number', description: '覆盖帧率，默认 24' },
       workers: { type: 'number', description: '并行渲染段数：按 CPU 核数把整片切段同时画，再无损拼接；1=单片，0/省略=按设置（默认自动，最多 4 段）' },
       accelerator: { type: 'string', enum: ['auto', 'cpu', 'gpu'], description: '编码算力：cpu=纯 CPU（libx264，画质最好）；gpu=显卡硬件编码 NVENC/QSV/AMF（快数倍）；auto=有显卡自动用。留空走设置' },
@@ -487,6 +488,8 @@ function renderTool() {
         pngDir,
         width: args.width ? Number(args.width) : undefined,
         height: args.height ? Number(args.height) : undefined,
+        // 设置里的画面方向优先（默认 landscape），args 显式覆盖优先于设置
+        orientation: args.orientation || st.render?.orientation,
         fps: args.fps ? Number(args.fps) : Number(st.render?.fps) || undefined,
         scale: args.scale ? Number(args.scale) : Number(st.render?.scale) || undefined,
         workers: args.workers ? Number(args.workers) : undefined,
@@ -599,7 +602,7 @@ function hailuoTool() {
       duration: { type: 'number', description: '时长整秒：4–15（H3-Max 为 5–15），默认 8' },
       resolution: { type: 'string', enum: ['480P', '768P', '2K'], description: '随档位而定：H3=768P/2K，Highspeed/Lite/Max=480P/768P，Regeneration 固定 2K' },
       model: { type: 'string', enum: ['MiniMax-H3', 'MiniMax-H3-Highspeed', 'MiniMax-H3-Lite', 'MiniMax-H3-Max', 'MiniMax-H3-Regeneration'], description: '默认按设置里的 video.model（出厂 MiniMax-H3-Highspeed）' },
-      ratio: { type: 'string', description: '纯文生视频的宽高比，如 9:16（图生视频会被强制 adaptive）' },
+      ratio: { type: 'string', description: '纯文生视频的宽高比，如 16:9（横屏）或 9:16（竖屏），默认 16:9；图生视频会被强制 adaptive' },
       out: { type: 'string', description: '成片保存路径，默认 out/h3-<task_id>.mp4' },
       status: { type: 'string', description: '只查询这个 task_id 的进度，不创建新任务' },
       models: { type: 'boolean', description: '列出 H3 全部档位、分辨率与价格后返回' },
@@ -1020,7 +1023,7 @@ function motionTool() {
   return defineTool({
     name: 'ai_diary_motion',
     description:
-      '角色动态素材（Seedance 生成的 5 秒角色短片）管理。action=list 列已有短片与缺谁，action=import 把一段 mp4 收进插件（按角色归档并记录时长/尺寸），action=plate 把短片转成 9:16 动态底板（assets/plates/<name>）给 render 当背景层。注意：引擎只能整段转底板，不能把视频里的透明角色单独抠出来叠到立绘位。',
+      '角色动态素材（Seedance 生成的 5 秒角色短片）管理。action=list 列已有短片与缺谁，action=import 把一段 mp4 收进插件（按角色归档并记录时长/尺寸），action=plate 把短片转成 16:9 动态底板（assets/plates/<name>）给 render 当背景层。注意：引擎只能整段转底板，不能把视频里的透明角色单独抠出来叠到立绘位。',
     parameters: {
       action: { type: 'string', enum: ['list', 'import', 'plate'], description: 'list / import / plate' },
       from: { type: 'string', description: 'action=import 时必填：源 mp4 路径' },
@@ -1229,7 +1232,7 @@ function registerSkill(ctx) {
     () => skills.register({
       name: 'ai-diary',
       description: '用 AI 日记工坊的 7 个 ai_diary_* 工具，从选题一路做到 B 站投稿：选题 → 剧本 → 本地渲染出片 → 三家 TTS 任选配音 → MiniMax H3 生成动态底板 → 素材自检补图 → 挂进客户端投稿。',
-      whenToUse: '用户要做 AI 角色日记 / 竖屏短剧，或提到 AI 日记工坊、ai_diary_* 工具、要求「批量出片」「发到 B 站」时。',
+      whenToUse: '用户要做 AI 角色日记 / AI短剧，或提到 AI 日记工坊、ai_diary_* 工具、要求「批量出片」「发到 B 站」时。',
       source: 'runtime',
       content,
       resourceBase: { kind: 'directory', path: dirname(fileURLToPath(SKILL_FILE)) },

@@ -95,8 +95,9 @@ export function buildPayload({ prompt, firstFrameUrl, lastFrameUrl, refImageUrls
 
   const body = { model, content, duration: dur, resolution };
   // 图生视频时宽高比由首帧决定（ratio 恒 adaptive）；纯文生视频必须显式给 ratio
+  // 默认 16:9 横屏，和引擎默认成片一致（底板要铺满横屏画布）
   if (firstFrameUrl || lastFrameUrl) body.ratio = 'adaptive';
-  else body.ratio = ratio || '9:16';
+  else body.ratio = ratio || '16:9';
   return body;
 }
 

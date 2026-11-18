@@ -8,7 +8,8 @@ import { beatDuration, timeline } from './engine.mjs';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 export const ROOT = path.resolve(__dirname, '..');
 
-export const OUTPUT_DEFAULT = { width: 720, height: 1280, fps: 24 };
+// 默认横屏 16:9：逻辑 1280×720（引擎 1.5× 超采样 → 1920×1080）。要竖屏就把 output 写成 720×1280。
+export const OUTPUT_DEFAULT = { width: 1280, height: 720, fps: 24 };
 
 export function buildScript(topic, opts = {}) {
   if (!topic || !Array.isArray(topic.beats) || topic.beats.length === 0) throw new Error('题材缺少 beats');
@@ -52,7 +53,7 @@ export function validateScript(s) {
   const tl = timeline(s.beats);
   if (tl.length > 9) throw new Error('一台戏最多 9 镜，拆成两集更稳');
   const total = tl[tl.length - 1].end;
-  if (total > 60) throw new Error(`片长 ${total.toFixed(1)}s 超过 60s，B 站竖屏短剧建议 25–50s`);
+  if (total > 60) throw new Error(`片长 ${total.toFixed(1)}s 超过 60s，B 站 AI 短剧建议 25–50s`);
   return true;
 }
 
@@ -97,7 +98,7 @@ export function loadScript(file) {
 /** 供 B 站发布使用的默认文案（标题/简介/标签） */
 export function publishMeta(s) {
   const c = s.episode.character.toUpperCase();
-  const tags = ['AI', 'AI角色', c, '赛博弃养', '竖屏短剧', 'AI日记'];
+  const tags = ['AI', 'AI角色', c, '赛博弃养', 'AI短剧', 'AI日记'];
   return {
     title: `${s.title}`,
     desc: [

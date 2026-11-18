@@ -1,5 +1,5 @@
 // AI 日记渲染引擎 —— 纯本地确定性渲染，不调用任何生成模型，不消耗 token。
-// 输入一份剧本 JSON，输出 9:16 竖屏 MP4（或 PNG 帧序列）。
+// 输入一份剧本 JSON，输出 16:9 横屏 MP4（或 PNG 帧序列）；把 output 写成 720×1280 就是竖屏。
 // 依赖：@napi-rs/canvas（Skia 绘制）+ ffmpeg（编码）。
 
 import { createCanvas, loadImage, GlobalFonts } from '@napi-rs/canvas';
@@ -13,10 +13,9 @@ import { findPlate, FramePlate } from './plate.mjs';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 export const ROOT = path.resolve(__dirname, '..');
 
-// 布局以 720×1280 为逻辑坐标系书写；scale 是超采样倍数，1.5 → 真实输出 1080×1920。
-// 这样字号、圆角、边距这些硬编码的像素值一个都不用改，但文字与立绘按真实像素重新光栅化，
-// 不是把 720p 拉大，是本来就画在 1080p 的画布上。
-export const DEFAULTS = { width: 720, height: 1280, fps: 24, scale: 1.5 };
+// 默认横屏 16:9：逻辑坐标 1280×720，scale 1.5 → 真实输出 1920×1080。
+// 版面按宽度自适应：字号与 HUD 之类硬编码像素按 UIK = W/720 缩放，竖屏（W=720）时 UIK=1，与旧版逐像素一致。
+export const DEFAULTS = { width: 1280, height: 720, fps: 24, scale: 1.5 };
 
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
 const lerp = (a, b, t) => a + (b - a) * t;
@@ -230,10 +229,23 @@ function wrapBalanced(ctx, text, maxWidth) {
   return lines;
 }
 
+// 画面方向决定逻辑画布：横屏 1280×720 / 竖屏 720×1280。opts.orientation 优先于剧本里写死的 output。
+export const ORIENT_WH = { landscape: { width: 1280, height: 720 }, portrait: { width: 720, height: 1280 } };
+
+export function resolveSize(script, opts = {}) {
+  const orient = opts.orientation === 'portrait' || opts.orientation === 'landscape' ? opts.orientation : null;
+  const base = orient ? ORIENT_WH[orient] : DEFAULTS;
+  return {
+    width: opts.width || (orient ? base.width : script.output?.width || DEFAULTS.width),
+    height: opts.height || (orient ? base.height : script.output?.height || DEFAULTS.height),
+  };
+}
+
 export async function renderEpisode(script, opts = {}) {
   ensureFont();
-  const W = opts.width || script.output?.width || DEFAULTS.width;
-  const H = opts.height || script.output?.height || DEFAULTS.height;
+  // 画面方向：显式 opts.orientation 优先（设置里的 render.orientation 会传进来），
+  // 其次看剧本自己写死的 output 尺寸，最后回默认横屏。
+  const { width: W, height: H } = resolveSize(script, opts);
   const FPS = opts.fps || script.output?.fps || DEFAULTS.fps;
   const S = Math.max(1, Number(opts.scale ?? script.output?.scale ?? DEFAULTS.scale) || 1);
   const OW = Math.round(W * S);
@@ -261,11 +273,13 @@ export async function renderEpisode(script, opts = {}) {
 
   const canvas = createCanvas(OW, OH);
   const ctx = canvas.getContext('2d');
-  ctx.scale(S, S); // 之后所有绘制都用 720×1280 的逻辑坐标
+  ctx.scale(S, S); // 之后所有绘制都用逻辑坐标（横屏 1280×720 / 竖屏 720×1280）
   const noise = makeNoise(96, 96);
   const stars = makeStars(W, H, 80);
   const dust = makeDust(W, H);
   const tpl = getTemplate(ep.template || opts.template || script.template || 'classic');
+  // 版面自适应系数：竖屏 720 宽 = 1（与 0.9.x 逐像素一致），横屏 1280 宽 = 1.78
+  const UIK = W / 720;
 
   const outFile = opts.out || path.join(ROOT, 'out', `${script.id || 'episode'}.mp4`);
   const pngDir = opts.pngDir || null;
@@ -386,28 +400,28 @@ export async function renderEpisode(script, opts = {}) {
     ctx.globalAlpha = 0.92;
     // DAY 徽章
     ctx.fillStyle = 'rgba(6,16,30,0.72)';
-    roundRect(ctx, 26, 30, 118, 44, 10); ctx.fill();
-    ctx.fillStyle = '#CFE0F2'; ctx.font = `600 15px ${fontFamily}`; ctx.textBaseline = 'middle';
-    ctx.fillText('DAY', 42, 52);
-    ctx.fillStyle = '#7FE0CF'; ctx.font = `700 22px ${fontFamily}`;
-    ctx.fillText(day, 92, 52);
+    roundRect(ctx, 26 * UIK, 30 * UIK, 118 * UIK, 44 * UIK, 10 * UIK); ctx.fill();
+    ctx.fillStyle = '#CFE0F2'; ctx.font = `600 ${15 * UIK}px ${fontFamily}`; ctx.textBaseline = 'middle';
+    ctx.fillText('DAY', 42 * UIK, 52 * UIK);
+    ctx.fillStyle = '#7FE0CF'; ctx.font = `700 ${22 * UIK}px ${fontFamily}`;
+    ctx.fillText(day, 92 * UIK, 52 * UIK);
 
     // 余额面板
-    const px = W - 26 - 190;
+    const px = W - 26 * UIK - 190 * UIK;
     ctx.fillStyle = 'rgba(6,16,30,0.72)';
-    roundRect(ctx, px, 30, 190, 64, 12); ctx.fill();
-    ctx.fillStyle = '#8FA6BF'; ctx.font = `600 11px ${fontFamily}`;
-    ctx.fillText('BALANCE', px + 14, 46);
+    roundRect(ctx, px, 30 * UIK, 190 * UIK, 64 * UIK, 12 * UIK); ctx.fill();
+    ctx.fillStyle = '#8FA6BF'; ctx.font = `600 ${11 * UIK}px ${fontFamily}`;
+    ctx.fillText('BALANCE', px + 14 * UIK, 46 * UIK);
     ctx.fillStyle = remain < 3 && Math.sin(t * 6.2) > 0 ? '#FF9B7B' : '#7FE0CF';
-    ctx.font = `700 26px ${fontFamily}`;
-    ctx.fillText('¥' + remain.toFixed(2), px + 14, 70);
+    ctx.font = `700 ${26 * UIK}px ${fontFamily}`;
+    ctx.fillText('¥' + remain.toFixed(2), px + 14 * UIK, 70 * UIK);
     // 电量条
-    const barW = 160, barH = 5;
+    const barW = 160 * UIK, barH = 5 * UIK;
     ctx.fillStyle = 'rgba(255,255,255,0.16)';
-    roundRect(ctx, px + 14, 80, barW, barH, 2.5); ctx.fill();
+    roundRect(ctx, px + 14 * UIK, 80 * UIK, barW, barH, 2.5 * UIK); ctx.fill();
     const ratio = Math.max(0, remain / Math.max(balance, 1));
     ctx.fillStyle = remain < 3 ? '#E08A4B' : '#5FD6C0';
-    roundRect(ctx, px + 14, 80, Math.max(2, barW * ratio), barH, 2.5); ctx.fill();
+    roundRect(ctx, px + 14 * UIK, 80 * UIK, Math.max(2, barW * ratio), barH, 2.5 * UIK); ctx.fill();
     ctx.restore();
     }
 
@@ -417,15 +431,17 @@ export async function renderEpisode(script, opts = {}) {
       const chars = [...cur.text];
       const shown = clamp(Math.floor(chars.length * Math.min(1, inBeat * 1.25)), 0, chars.length);
       const txt = chars.slice(0, shown).join('');
-      const fs = tpl.id === 'classic' ? 32 : 31;
+      const fsBase = tpl.id === 'classic' ? 32 : 31;
+      const fs = Math.round(fsBase * (W >= H ? 1.25 : 1)); // 横屏画面宽，字幕略放大才压得住，但不吃掉画面
       ctx.font = `500 ${fs}px ${fontFamily}`;
       const lines = wrapBalanced(ctx, txt, W * (tpl.id === 'classic' ? 0.86 : 0.82));
       const lh = fs * 1.45;
       const lastY = H * tpl.subtitle.yR;
       const baseY = lastY - (lines.length - 1) * lh;
-      // 文字底衬
-      const bandTop = H * tpl.subtitle.bandTopR;
-      const bg = ctx.createLinearGradient(0, bandTop, 0, H * (tpl.subtitle.bandTopR + tpl.subtitle.bandBottom));
+      // 文字底衬（横屏字幕更高，带上沿要上移，否则多行会盖到立绘）
+      const bandTopR = W >= H ? 0.68 : tpl.subtitle.bandTopR;
+      const bandTop = H * bandTopR;
+      const bg = ctx.createLinearGradient(0, bandTop, 0, H * Math.min(1, bandTopR + tpl.subtitle.bandBottom));
       bg.addColorStop(0, 'rgba(3,9,18,0)');
       bg.addColorStop(0.30, tpl.id === 'classic' ? 'rgba(3,9,18,0.58)' : 'rgba(6,4,3,0.60)');
       bg.addColorStop(1, tpl.id === 'classic' ? 'rgba(3,9,18,0.80)' : 'rgba(6,4,3,0.82)');
@@ -438,19 +454,22 @@ export async function renderEpisode(script, opts = {}) {
         ctx.fillStyle = tpl.subtitle.color;
         ctx.fillText(ln, W / 2, y);
       });
-      // 说话人
-      ctx.font = `600 12px ${fontFamily}`;
-      ctx.fillStyle = tpl.id === 'classic' ? (moodColor[cur.mood] || '#8FA6BF') : tpl.accent;
-      ctx.fillText(`${charName} · AI DIARY`, W / 2, H * (tpl.id === 'classic' ? 0.962 : 0.947));
+      // 说话人（只在竖屏画：横屏画面矮，字幕已经贴近底部，再塞一行会压住字幕与进度条）
+      if (W < H) {
+        const speakerY = tpl.id === 'classic' ? 0.962 : 0.947;
+        ctx.font = `600 ${Math.round(12 * UIK)}px ${fontFamily}`;
+        ctx.fillStyle = tpl.id === 'classic' ? (moodColor[cur.mood] || '#8FA6BF') : tpl.accent;
+        ctx.fillText(`${charName} · AI DIARY`, W / 2, H * speakerY);
+      }
       ctx.textAlign = 'left';
     }
 
     // 7) 底部进度 ticks
     tl.forEach((b, idx) => {
-      const tw = (W - 52) / tl.length - 6;
-      const x = 26 + idx * ((W - 52) / tl.length);
+      const tw = (W - 52 * UIK) / tl.length - 6;
+      const x = 26 * UIK + idx * ((W - 52 * UIK) / tl.length);
       ctx.fillStyle = t >= b.end ? 'rgba(127,224,207,0.75)' : t >= b.start ? 'rgba(127,224,207,0.35)' : 'rgba(255,255,255,0.12)';
-      ctx.fillRect(x, H - 24, tw, 3);
+      ctx.fillRect(x, H - (W >= H ? 13 : 24), tw, 3);
     });
 
     // 8) 颗粒 + 暗角
@@ -470,14 +489,15 @@ export async function renderEpisode(script, opts = {}) {
       ctx.fillRect(0, 0, W, H);
       ctx.globalAlpha = a;
       ctx.textAlign = 'center';
-      ctx.fillStyle = '#7FE0CF'; ctx.font = `600 13px ${fontFamily}`;
-      ctx.fillText('AI DIARY · 第 ' + Number(ep.day ?? 1) + ' 天', W / 2, H * 0.20);
-      ctx.fillStyle = '#F2F7FB'; ctx.font = `700 32px ${fontFamily}`;
+      ctx.fillStyle = '#7FE0CF'; ctx.font = `600 ${Math.round(13 * UIK)}px ${fontFamily}`;
+      ctx.fillText('AI DIARY · 第 ' + Number(ep.day ?? 1) + ' 天', W / 2, H * (W >= H ? 0.16 : 0.20));
+      ctx.fillStyle = '#F2F7FB'; ctx.font = `700 ${Math.round(32 * (W >= H ? 1.2 : UIK))}px ${fontFamily}`;
       const titleLines = wrapBalanced(ctx, script.title || 'AI 日记', W * 0.80);
-      const topY = H * 0.26;
-      titleLines.forEach((ln, i) => ctx.fillText(ln, W / 2, topY + i * 46));
-      ctx.fillStyle = 'rgba(127,224,207,0.85)'; ctx.font = `500 14px ${fontFamily}`;
-      ctx.fillText('余额 ¥' + Number(ep.balance ?? 1).toFixed(2) + ' · 共 ' + Number(ep.day ?? 1) + ' 天', W / 2, topY + titleLines.length * 46 + 18);
+      const topY = H * (W >= H ? 0.27 : 0.26);
+      const lineH = W >= H ? 52 : 46 * UIK;
+      titleLines.forEach((ln, i) => ctx.fillText(ln, W / 2, topY + i * lineH));
+      ctx.fillStyle = 'rgba(127,224,207,0.85)'; ctx.font = `500 ${Math.round(14 * UIK)}px ${fontFamily}`;
+      ctx.fillText('余额 ¥' + Number(ep.balance ?? 1).toFixed(2) + ' · 共 ' + Number(ep.day ?? 1) + ' 天', W / 2, topY + titleLines.length * lineH + 18 * UIK);
       ctx.globalAlpha = 1; ctx.textAlign = 'left';
       }
     }
@@ -490,9 +510,9 @@ export async function renderEpisode(script, opts = {}) {
       ctx.fillStyle = `rgba(3,8,16,${(0.90 * a).toFixed(3)})`;
       ctx.fillRect(0, 0, W, H);
       ctx.globalAlpha = a; ctx.textAlign = 'center';
-      ctx.fillStyle = '#8FA6BF'; ctx.font = `600 15px ${fontFamily}`;
+      ctx.fillStyle = '#8FA6BF'; ctx.font = `600 ${Math.round(15 * UIK)}px ${fontFamily}`;
       ctx.fillText('未完待续', W / 2, H * 0.40);
-      ctx.fillStyle = 'rgba(127,224,207,0.9)'; ctx.font = `500 12px ${fontFamily}`;
+      ctx.fillStyle = 'rgba(127,224,207,0.9)'; ctx.font = `500 ${Math.round(12 * UIK)}px ${fontFamily}`;
       ctx.fillText('AI DIARY · 余额 ' + '¥' + remain.toFixed(2), W / 2, H * 0.44);
       ctx.globalAlpha = 1; ctx.textAlign = 'left';
       }

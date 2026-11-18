@@ -25,6 +25,7 @@ const opts = {
   width: Number(flag('width', 0)) || undefined,
   height: Number(flag('height', 0)) || undefined,
   scale: flag('scale') ? Number(flag('scale')) : undefined,
+  orientation: flag('orientation') || undefined,
   template: flag('template'),
   look: flag('look'),
   maxSeconds: flag('max-seconds') ? Number(flag('max-seconds')) : undefined,

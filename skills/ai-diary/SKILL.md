@@ -1,7 +1,7 @@
 ---
 name: ai-diary
-description: 用 ai_diary_* 与 pc_* 十八个工具把「AI 角色日记」竖屏短剧从选题做到 B 站投稿：选题 → 剧本 → 本地渲染出片（CPU/GPU 可切）→ 三家 TTS 配音 → Seedream 出立绘 / MiniMax H3 五档生成动态底板 → 自动选素材 → 走哔哩哔哩客户端上传/填表/评论（内置电脑操控引擎，不用浏览器）。
-whenToUse: 用户要做 AI 角色日记/竖屏短剧、批量出片、给片子配音，或提到 AI 日记工坊、ai_diary_* 工具、MiniMax H3、千问 TTS、发到 B 站时。
+description: 用 ai_diary_* 与 pc_* 十八个工具把「AI 角色日记」AI短剧从选题做到 B 站投稿：选题 → 剧本 → 本地渲染出片（CPU/GPU 可切）→ 三家 TTS 配音 → Seedream 出立绘 / MiniMax H3 五档生成动态底板 → 自动选素材 → 走哔哩哔哩客户端上传/填表/评论（内置电脑操控引擎，不用浏览器）。
+whenToUse: 用户要做 AI 角色日记/AI短剧、批量出片、给片子配音，或提到 AI 日记工坊、ai_diary_* 工具、MiniMax H3、千问 TTS、发到 B 站时。
 ---
 
 # AI 日记工坊
@@ -12,17 +12,17 @@ whenToUse: 用户要做 AI 角色日记/竖屏短剧、批量出片、给片子�
 
 1. `ai_diary_topics` —— 选题（内置原创题材库，默认避开做过的）
 2. `ai_diary_plan` —— 题材编译成剧本 JSON（每镜时长、分镜时间点、片长都算好）
-3. `ai_diary_render` —— 剧本 JSON 渲染成 9:16 MP4（Skia 逐帧 + ffmpeg），默认出 1080×1920（逻辑布局 720×1280、1.5× 超采样，字号与坐标不用改）；`--scale 1` 回 720p 换速度，`--scale 2` 出 1440×2560；可 `--look` 换立绘模样
+3. `ai_diary_render` —— 剧本 JSON 渲染成 MP4（Skia 逐帧 + ffmpeg），默认 16:9 横屏 1920×1080（逻辑布局 1280×720、1.5× 超采样）；设置 render.orientation=portrait 或传 `--orientation portrait` 回竖屏 1080×1920；`--scale 1` 回 720p 换速度，`--scale 2` 出 2560×1440；可 `--look` 换立绘模样
 4. `ai_diary_voice` —— 逐镜配音：小米 MiMo / 千问 Qwen-TTS / MiniMax T2A 三选一，按镜头时长对齐后混流
 5. `ai_diary_hailuo` —— MiniMax H3 生成 4–15 秒动态底板视频（异步任务，默认 dry_run 不扣费）
 6. `ai_diary_assets` —— 素材自检：缺哪些立绘/背景、给补图提示词
 7. `ai_diary_pick` —— 自动选素材：按情绪挑立绘、按模板挑底板与背景，并给封面候选
-8. `ai_diary_post` —— 真投稿编排：先自检成片规格（分辨率/竖屏比例/时长/体积，不合格先提醒）→ 唤起客户端 → 创作中心 → 点上传 → 原生文件框粘路径 → 等上传完成 → 填封面/标题/声明/分区/标签/简介 → 停在「立即投稿」前给你截图
+8. `ai_diary_post` —— 真投稿编排：先自检成片规格（分辨率/画面比例（16:9 或 9:16）/时长/体积，不合格先提醒）→ 唤起客户端 → 创作中心 → 点上传 → 原生文件框粘路径 → 等上传完成 → 填封面/标题/声明/分区/标签/简介 → 停在「立即投稿」前给你截图
 9. `ai_diary_comments` —— 评论自动回复：`action=auth` 只验 Cookie；`action=auto` 按规则回复（`mode=api` 走评论接口 / `gui` 截图点按钮 / `hybrid` 默认，接口失败才回退一次；`send` 默认 false 只出计划）；`action=watch` 挂一段时间反复扫；`scan` / `calibrate` 是 GUI 侧读页面。规则写法三选一：子串 `"催更"`、关键词数组 `["催更","更新"]`、正则 `"/感谢|谢谢/"`，`"*"` 兜底；规则可带 `replies` 文案池，回复时避开最近 20 条用过的句子；`recent_hours`（默认 72）只回这段时间内的新评论，`0`=不限。接口路线需要 Cookie：设置里 `keys.bili` 填 `SESSDATA=…; bili_jct=…; buvid3=…`（或环境变量 `BILI_COOKIE`）。每条只回一次（接口按 rpid、GUI 按文本指纹，账本记 499 条），平台约 30 秒 1 条，单轮默认最多 3 条
 10. `pc_see` / `pc_act` —— 通用电脑操控：文本优先观察窗口（`windows`/`tree`/`find`/`text`/`shot`），动作串一次多步（`focus`/`click`/`move`/`scroll`/`key`/`paste`/`wait` 等）
 11. `ai_diary_publish` —— 轻量发布辅助：文案进剪贴板 + 带视频拉起客户端（默认 dry_run，不点投稿）
 12. `ai_diary_local` —— 本机 ComfyUI 出图：探活 / 列底模 / 按提示词生成，不耗生成额度
-13. `ai_diary_motion` —— 角色动态素材：收短片 / 列清单 / 转 9:16 动态底板
+13. `ai_diary_motion` —— 角色动态素材：收短片 / 列清单 / 转 16:9 动态底板
 14. `ai_diary_update` —— 联网查 GitHub Releases、下载、按 profile 安装（不会静默装）
 15. `ai_diary_settings` —— 读写插件设置：`status` 一屏体检（环境/账号/发布/内容/定时）；`get` 看配置；`set` 改 API Key、配音服务商与音色、ComfyUI 地址、发布策略
 16. `ai_diary_schedule` —— 定时自动出片：`status` / `enable` / `disable` / `set` / `run-now`
@@ -88,9 +88,9 @@ ai_diary_plan { topic_id: "day7-balance", character: "gpt" }   // 输出 day7-ba
 
 ## 动态底板
 
-`assets/plates/<模板名>/` 里是 12fps JPEG 帧目录 + `meta.json`（默认 96 帧 / 8 秒 / 720×1280），存在时自动接管背景层，播完无缝循环。退路是逐级的：动态底板 → 静态底图 → 纯渐变。
+`assets/plates/<模板名>/` 里是 12fps JPEG 帧目录 + `meta.json`（默认 96 帧 / 8 秒 / 1280×720），存在时自动接管背景层，播完无缝循环。退路是逐级的：动态底板 → 静态底图 → 纯渐变。
 
-要升级画面，把一段 9:16 视频（或一张静帧）转成底板即可，**不用改代码**：
+要升级画面，把一段 16:9 视频（或一张静帧）转成底板即可，**不用改代码**：
 
 ```
 node bin/ai-diary.mjs plate --from out/seedance-report.mp4 --name report
@@ -98,7 +98,7 @@ node bin/ai-diary.mjs plates                                          // 看现�
 node bin/ai-diary.mjs render --script out/day18-report.json --plate report   // 临时换底板
 ```
 
-静帧来源会被程序化地推近 + 加颗粒 + 光照微颤（零额度）；视频来源直接按 12fps 抽帧裁成 720×1280。生成模型额度不可用时就先用静帧版，额度恢复后同名覆盖即完成升级。
+静帧来源会被程序化地推近 + 加颗粒 + 光照微颤（零额度）；视频来源直接按 12fps 抽帧裁成 1280×720。生成模型额度不可用时就先用静帧版，额度恢复后同名覆盖即完成升级。
 
 ## 立绘模样（look）
 
