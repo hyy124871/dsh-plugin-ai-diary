@@ -2,6 +2,24 @@
 
 给 **DeepSeek Harness（dsh）** 用的一个插件：把「AI 角色日记短剧」从选题到发布整条链子做成 18 个工具（16 个 `ai_diary_*` + 2 个 `pc_*`），画面由本地渲染引擎合成，配音与动态底板才可选调用外部接口；投稿、回评论、选素材都能在哔哩哔哩客户端里真机自动完成，不开浏览器。
 
+## v0.9.7：挂件挪到「标准模式」右边，点得开了
+
+### 换位置
+
+0.9.6 挂在底行（`conversation.input.left`，和「工作区内修改 / 记忆开」一排）。这一版换到 `conversation.hero.options` —— 契约里写的是「New Session 那排里右对齐、排在 workspace 与 preset 控件之后」，正好是「📁 插件制作 ⌄ ⟳ 标准模式 ⌄ 之后」那个位置。
+
+### 点不开的根因
+
+0.9.6 把卡片用 `React.createPortal` 往 `document.body` 挂。宿主的 `require('react')` 不一定带 `createPortal`，拿不到就是 `null` —— 于是点一下什么都不发生，看着就是"按钮坏了"。
+
+这一版不再依赖 portal：chip 点击时只往一个模块级小 store 里写「开/关 + 坐标」，卡片由另一个注册在 **`shell.overlay`**（frame 级帧层）的组件画。这是官方放 dialog / toast 的地方，天然不会被 composer 的裁切与 transform 吃掉，也不需要 portal。
+
+顺带：卡片跟着 chip 的下沿往下弹（之前是往上弹，因为底行位置）。
+
+### 仍然要知道的
+
+首页「探索未至之境」空态下 `sessionId` 还没建立，`conversation.hero.options` 与其它 composer 槽位一样不渲染——**挂件在已经开着的会话里才出现**。
+
 ## v0.9.6：挂件真的显示出来了，更新不再动你的 key，选题不再反复烧 token
 
 ### 修掉「面板装好了但输入框那儿没有」的根因
