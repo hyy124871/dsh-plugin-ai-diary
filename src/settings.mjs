@@ -18,6 +18,7 @@ import path from 'node:path';
 export const SECRETS = {
   mimo: 'MIMO_API_KEY',
   dashscope: 'DASHSCOPE_API_KEY',
+  deepseek: 'DEEPSEEK_API_KEY',
   minimax: 'MINIMAX_API_KEY',
   ark: 'ARK_API_KEY',
   github: 'GITHUB_TOKEN',
@@ -27,7 +28,7 @@ export const SECRETS = {
 export const DEFAULTS = {
   // 总开关：默认关闭。关着时定时出片、定时发布、自动回评论都不跑，只在面板里手动点才动
   enabled: false,
-  keys: { mimo: '', dashscope: '', minimax: '', ark: '', github: '', bili: '' },
+  keys: { mimo: '', dashscope: '', deepseek: '', minimax: '', ark: '', github: '', bili: '' },
   tts: { provider: 'xiaomi', model: '', voice: '' },
   comfy: { base: 'http://127.0.0.1:8188' },
   // 成片规格：逻辑布局固定 720×1280，scale 是超采样倍数 → 1.5 出 1080×1920

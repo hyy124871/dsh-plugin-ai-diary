@@ -86,7 +86,8 @@ export const Config = Schema
   ? Schema.object({
     keys: Schema.object({
       mimo: Schema.string().description('小米 MiMo TTS 的 key（对应 MIMO_API_KEY）'),
-      dashscope: Schema.string().description('千问 Qwen-TTS 的 key（对应 DASHSCOPE_API_KEY）'),
+      dashscope: Schema.string().description('千问 Qwen-TTS / 写台词的 key（对应 DASHSCOPE_API_KEY）'),
+      deepseek: Schema.string().description('DeepSeek 写台词的 key（对应 DEEPSEEK_API_KEY）'),
       minimax: Schema.string().description('MiniMax TTS / H3 视频的 key（对应 MINIMAX_API_KEY）'),
       ark: Schema.string().description('火山方舟 ARK key，Seedream 出图用（对应 ARK_API_KEY）'),
       github: Schema.string().description('GitHub token，仅私有仓库查新/发布用（对应 GITHUB_TOKEN）'),
@@ -1236,13 +1237,14 @@ export function apply(ctx, config = {}) {
             res.end(JSON.stringify(obj));
           };
           try {
-            const [S, U, ST, SD, VC, BL] = await Promise.all([
+            const [S, U, ST, SD, VC, BL, LL] = await Promise.all([
               import('./settings.mjs'),
               import('./update.mjs'),
               import('./studio.mjs'),
               import('./seedream.mjs'),
               import('./voice.mjs'),
               import('./bili-login.mjs'),
+              import('./llm.mjs'),
             ]);
             const snapshot = () => {
               const st = S.loadSettings(ROOT);
@@ -1261,8 +1263,12 @@ export function apply(ctx, config = {}) {
                 tts: st.tts || {},
                 text: st.text || {},
                 keys,
-                // 面板下拉要的可选型号清单（生图 / 配音）
-                models: { image: SD.modelOptions(), tts: VC.modelOptions() },
+                // 面板下拉要的可选型号清单（生图 / 配音 / 写台词）
+                models: {
+                  image: SD.modelOptions(),
+                  tts: VC.modelOptions(),
+                  text: Object.entries(LL.PROVIDERS).map(([id, p]) => ({ id, label: p.label, models: p.models || [] })),
+                },
                 state: U.freshState(ROOT),
                 settingsFile: S.settingsPath(ROOT),
                 // 工作室四块：素材库 / 成片库 / 发布与评论 / 自动化

@@ -2,6 +2,35 @@
 
 给 **DeepSeek Harness（dsh）** 用的一个插件：把「AI 角色日记短剧」从选题到发布整条链子做成 18 个工具（16 个 `ai_diary_*` + 2 个 `pc_*`），画面由本地渲染引擎合成，配音与动态底板才可选调用外部接口；投稿、回评论、选素材都能在哔哩哔哩客户端里真机自动完成，不开浏览器。
 
+## v0.9.9：写台词也能用 DeepSeek 了
+
+### 第三个文本服务商
+
+「写台词的模型」原来只有 dashscope（千问）和 ark（豆包）。现在多了 DeepSeek 官方直连：
+
+| 服务商 | 端点 | key | 默认型号 |
+|---|---|---|---|
+| `deepseek` | `api.deepseek.com/chat/completions` | `DEEPSEEK_API_KEY` | `deepseek-chat` |
+| `dashscope` | 千问兼容端点 | `DASHSCOPE_API_KEY` | `qwen-plus` |
+| `ark` | 方舟 v3 端点 | `ARK_API_KEY` | 自己填接入点 id |
+
+`deepseek-chat` 与 `deepseek-reasoner` 二选一，设置页多一格「DeepSeek」key。
+
+### 顺手修掉的两个真 bug
+
+**换服务商不清型号**。型号是全局一个字段：选了千问填 `qwen-plus`，再切到 DeepSeek，请求还是带 `qwen-plus` 去打 DeepSeek，必 401。现在切家会把型号清空，后端按该家默认型号补上；后端也加了白名单兜底——型号不属于本家就回落默认（`qwen-plus`→`deepseek-chat`），但 ark 的接入点 id 是自由格式，原样保留。
+
+**显式选了某家就只试那家**。原来 `pickProvider` 只按你选的那家找 key，选了 dashscope 而只配了 DeepSeek key 就直接判「没配文本模型」，整个自主选材降级成本地拼装。现在先试你选的，没 key 再按 `deepseek → dashscope → ark` 找能用的。
+
+### 验证
+
+- 三家 provider、型号清单、端点、环境变量名全部就位
+- 回落链：选 dashscope 仅配 DeepSeek key → `deepseek` / `deepseek-chat`
+- 型号纠偏：`qwen-plus` + DeepSeek → `deepseek-chat`；`deepseek-reasoner` 原样保留；ark 的 `ep-2026…` 原样保留
+- `off` 仍返回 null；老设置文件自动补上 `keys.deepseek` 且不动旧 key
+- DeepSeek 端点实测可达（假 key 返回它自己的 `authentication_error`，说明 URL 与路径正确）
+- 其余回归全绿：生图 5 型号、配音 8 型号、扫码出码、备份/自愈、选题缓存、工作室 8 角色 / 126 立绘 / 30 集
+
 ## v0.9.8：挂件长得跟旁边按钮一样了，旧的 Seedream 下拉也接上了新型号
 
 ### 挂件：无底色、黑字
