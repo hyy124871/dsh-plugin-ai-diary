@@ -228,6 +228,9 @@ export function listFilms(root, { scan = true } = {}) {
       const rel = path.relative(root, f);
       if (known.has(rel)) continue;
       const stat = fs.statSync(f);
+      // 刚写出来的文件可能还在 ffmpeg 手上，这时登记会记成半成品、还可能和渲染完成后的
+      // 正式登记撞成两条（同一个 mp4 被切成两集）——两分钟后再扫
+      if (Date.now() - stat.mtimeMs < 120000) continue;
       const title = path.basename(f).replace(/\.mp4$/i, '');
       doc.items.push({
         id: 'f' + Math.random().toString(36).slice(2, 8),
@@ -264,6 +267,22 @@ export function listFilms(root, { scan = true } = {}) {
 export function addFilm(root, meta = {}) {
   const doc = filmsDoc();
   const rel = meta.file ? path.relative(root, path.resolve(root, meta.file)) : null;
+
+  // 同一个文件只登记一次：目录扫描与渲染完成可能先后各记一条，
+  // 结果同一集被切成两个编号（第 43、第 44 集指向同一个 mp4）
+  const dup = rel ? doc.items.find((i) => i.file === rel) : null;
+  if (dup) {
+    const stat = rel && fs.existsSync(path.join(root, rel)) ? fs.statSync(path.join(root, rel)) : null;
+    dup.bytes = stat ? stat.size : dup.bytes;
+    dup.title = meta.title || dup.title;
+    dup.seconds = Number(meta.seconds) || dup.seconds;
+    dup.character = meta.character || dup.character;
+    dup.status = 'ready';
+    dup.source = meta.source || dup.source;
+    writeJson('films.json', doc);
+    return dup;
+  }
+
   const item = {
     id: 'f' + Math.random().toString(36).slice(2, 8),
     episode: Number(meta.episode) || doc.nextEpisode,
