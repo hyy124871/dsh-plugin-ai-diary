@@ -6,6 +6,17 @@
 
 ## v1.0.0-preview：能测 key 了，剧本也能自己写
 
+### 〇、默认改成 16:9 横屏
+
+成片默认 **1920×1080（16:9 横屏）**：引擎逻辑画布 1280×720、1.5× 超采样重绘，字号 / HUD / 字幕 / 片头片尾按画面宽度自适应（UIK = W/720），不是把竖屏画面拉伸裁切。
+
+想回竖屏：设置 `render.orientation = "portrait"`（面板「出片」卡也有「画面方向」开关），输出仍是 1080×1920；投稿自检对 16:9 与 9:16 都放行。
+
+```powershell
+node bin/ai-diary.mjs render --script out/x.json                        # 默认 1920×1080 横屏
+node bin/ai-diary.mjs render --script out/x.json --orientation portrait # 1080×1920 竖屏
+```
+
 ### 一、测试连通
 
 每把 key 右边多一个「测试」，卡片顶部多一个「全部测一遍」。点下去发一个**不花钱**的请求验鉴权：
