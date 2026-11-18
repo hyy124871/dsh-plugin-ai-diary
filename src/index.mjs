@@ -8,6 +8,7 @@
 //   - 有 skills 服务时顺带注册内嵌技能 ai-diary，让模型知道怎么串这 5 个工具
 
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { createRequire } from 'node:module';
 import { dirname } from 'node:path';
@@ -59,14 +60,106 @@ function readJsonBody(req, limit = 1 << 20) {
   });
 }
 
-// 真实运行时从 @deepseek-ai/dsh-tools 取 defineTool；脱离 dsh 单独跑测试时退化为恒等函数
-// （此时工具定义仍然是一个普通对象，可直接被 mock ctx 调用，方便单元测试）。
+// 工具定义工厂：宿主有三种形态，取第一个能用的。
+//   1) 沙箱宿主：把 harness.defineTool 挂成全局，注册器只认它打上的 marker
+//   2) 原生宿主：直接 require @deepseek-ai/dsh-tools
+//   3) 都没有时（profile 里这包缺间接依赖、或脱离 dsh 跑单测）：本地最小实现
+// 之前只写了第 2 条，一旦 require 失败就退化成恒等函数，
+// 结果 16 个 ai_diary_* 工具在会话里一个都不出现，而且只在 console 里留一行 warn。
 const require = createRequire(import.meta.url);
-let defineTool;
-try {
-  ({ defineTool } = require('@deepseek-ai/dsh-tools'));
-} catch {
-  defineTool = (def) => def;
+let DEFINE_TOOL_SOURCE = 'identity';
+
+/** 参数 DSL（{ count: { type, description } }）转 JSON Schema */
+function paramsToSchema(parameters) {
+  if (!parameters || typeof parameters !== 'object') {
+    return { type: 'object', properties: {}, additionalProperties: false };
+  }
+  if (parameters.type === 'object' && parameters.properties) return parameters;
+  const properties = {};
+  const required = [];
+  for (const [k, v] of Object.entries(parameters)) {
+    if (!v || typeof v !== 'object') continue;
+    const p = { ...v };
+    if (p.required === true) required.push(k);
+    delete p.required;
+    properties[k] = p;
+  }
+  const schema = { type: 'object', properties, additionalProperties: false };
+  if (required.length) schema.required = required;
+  return schema;
+}
+
+/** 没有宿主工具包时的最小工厂：保证 register 要的 output{schema,render} 齐全 */
+function miniDefineTool(options) {
+  if (!options || typeof options !== 'object') throw new Error('defineTool: options must be an object');
+  const output = options.output;
+  if (!output || typeof output !== 'object' || typeof output.render !== 'function' || !output.schema) {
+    throw new Error(`defineTool(${options.name}): output must be { schema, render }`);
+  }
+  return { ...options, parameters: paramsToSchema(options.parameters) };
+}
+
+function pickDefineTool() {
+  try {
+    const h = typeof globalThis !== 'undefined' ? globalThis.harness : undefined;
+    if (h && typeof h.defineTool === 'function') {
+      DEFINE_TOOL_SOURCE = 'harness.defineTool';
+      return h.defineTool;
+    }
+  } catch {
+    /* 沙箱没挂 harness 时忽略 */
+  }
+  try {
+    const m = require('@deepseek-ai/dsh-tools');
+    const fn = (m && m.defineTool) || (m && m.default && m.default.defineTool);
+    if (typeof fn === 'function') {
+      DEFINE_TOOL_SOURCE = 'dsh-tools';
+      return fn;
+    }
+  } catch {
+    /* profile 里这包可能缺间接依赖（例如 dsh-llm），退回最小实现 */
+  }
+  DEFINE_TOOL_SOURCE = 'mini';
+  return miniDefineTool;
+}
+
+const defineTool = pickDefineTool();
+
+/** 注册前先体检工具形状：失败原因写进 boot.log，比只在 console 里留一行 warn 强 */
+function precheckTool(tool) {
+  const problems = [];
+  if (!tool || typeof tool !== 'object') return ['不是对象'];
+  if (!/^[a-zA-Z][a-zA-Z0-9_]*$/.test(String(tool.name || ''))) problems.push('name 不合法');
+  if (!tool.output || typeof tool.output !== 'object') problems.push('缺 output');
+  else {
+    if (typeof tool.output.render !== 'function') problems.push('output.render 不是函数');
+    if (!tool.output.schema) problems.push('output.schema 缺失');
+  }
+  if (typeof tool.execute !== 'function') problems.push('execute 不是函数');
+  if (tool.parameters && !(tool.parameters.type === 'object' && tool.parameters.properties)) {
+    problems.push('parameters 没归一化成 JSON Schema');
+  }
+  return problems;
+}
+
+/** 把启动诊断写进 ~/.ai-diary/boot.log：插件装了但工具不出现时，看这个文件就知道卡在哪一步 */
+function writeBootLog(lines) {
+  try {
+    const home = process.env.AIDIARY_HOME || path.join(os.homedir(), '.ai-diary');
+    if (!fs.existsSync(home)) fs.mkdirSync(home, { recursive: true });
+    const p = path.join(home, 'boot.log');
+    const stamp = '[' + new Date().toISOString() + '] v' + readVersion();
+    let old = '';
+    try {
+      old = fs.readFileSync(p, 'utf8');
+    } catch {
+      /* 第一次写 */
+    }
+    const text = old + stamp + '\n  ' + lines.join('\n  ') + '\n';
+    fs.writeFileSync(p, text.split('\n').slice(-2000).join('\n'), 'utf8');
+  } catch {
+    /* 日志失败不能拖垮插件 */
+  }
 }
 
 const SKILL_FILE = new URL('../skills/ai-diary/SKILL.md', import.meta.url);
@@ -1103,13 +1196,26 @@ export function apply(ctx, config = {}) {
   } catch (e) {
     console.warn('[ai-diary] pc_see / pc_act 注册失败：' + e.message);
   }
+  const bootLines = ['defineTool=' + DEFINE_TOOL_SOURCE];
+  let registered = 0;
   for (const tool of tools) {
+    const problems = precheckTool(tool);
+    if (problems.length) bootLines.push('BAD ' + (tool && tool.name) + '：' + problems.join(' / '));
     try {
-      ctx.effect(() => ctx.tools.register(tool), 'ai-diary: tool ' + tool.name);
+      // 先直接注册：注册器是同步的，出错能在这里被抓到（塞进 effect 里会被吞成 console 一行）
+      const dispose = ctx.tools.register(tool);
+      registered += 1;
+      if (typeof ctx.effect === 'function' && typeof dispose === 'function') {
+        // effect 只负责卸载时反注册，注册本身已经在上面做完了
+        ctx.effect(() => dispose, 'ai-diary: tool ' + tool.name);
+      }
     } catch (e) {
-      console.warn('[ai-diary] 工具 ' + tool.name + ' 注册失败：' + e.message);
+      bootLines.push('FAIL ' + (tool && tool.name) + '：' + (e && e.message ? e.message : String(e)));
+      console.warn('[ai-diary] 工具 ' + (tool && tool.name) + ' 注册失败：' + (e && e.message ? e.message : e));
     }
   }
+  bootLines.push('registered=' + registered + '/' + tools.length);
+  writeBootLog(bootLines);
   try {
     void pcWarmup({ timeoutMs: 30000, maxActions: 24, failsafe: true });
   } catch {
