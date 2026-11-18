@@ -196,6 +196,7 @@ export async function addAssetAsync(root, opts) {
 function filmsDoc() {
   const doc = readJson('films.json', { items: [], nextEpisode: 1 });
   if (!Array.isArray(doc.items)) doc.items = [];
+  if (!Array.isArray(doc.ignored)) doc.ignored = [];
   if (!Number.isFinite(doc.nextEpisode)) doc.nextEpisode = (doc.items.length || 0) + 1;
   return doc;
 }
@@ -208,6 +209,9 @@ export function listFilms(root, { scan = true } = {}) {
     // out/check、out/bench 之类的测试产物不进来，否则成片库会被试渲染淹掉。
     const roots = [path.join(root, 'out'), path.join(root, 'out', 'scheduled')];
     const known = new Set(doc.items.map((i) => i.file));
+    // 「移出列表」的文件还在磁盘上，不记一下的话下次扫描又会把它加回来
+    // （用户看到的就是删了又回来，还多占一个集号）
+    const ignored = new Set(doc.ignored);
     const files = [];
     for (const [idx, dir] of roots.entries()) {
       if (!fs.existsSync(dir)) continue;
@@ -227,6 +231,7 @@ export function listFilms(root, { scan = true } = {}) {
     for (const f of files) {
       const rel = path.relative(root, f);
       if (known.has(rel)) continue;
+      if (ignored.has(rel)) continue;
       const stat = fs.statSync(f);
       // 刚写出来的文件可能还在 ffmpeg 手上，这时登记会记成半成品、还可能和渲染完成后的
       // 正式登记撞成两条（同一个 mp4 被切成两集）——两分钟后再扫
@@ -245,12 +250,22 @@ export function listFilms(root, { scan = true } = {}) {
       known.add(rel);
     }
     doc.items.sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
+    // 修一下编号基线：历史数据里可能出现 nextEpisode 小于已有最大集号
+    const maxEp = doc.items.reduce((m, i) => Math.max(m, Number(i.episode) || 0), 0);
+    if (doc.nextEpisode <= maxEp) doc.nextEpisode = maxEp + 1;
     // 没排过集数的按时间从旧到新补号，保证「第 N 集」有意义
     const unnumbered = doc.items.filter((i) => !i.episode).sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt)));
     for (const it of unnumbered) {
       it.episode = doc.nextEpisode++;
     }
-    doc.items = doc.items.slice(0, MAX_FILMS);
+    // 超出上限被裁掉的，也要进忽略名单，否则下轮扫描又把它们捡回来、
+    // 重新发一个集号，成片库会越滚越大
+    if (doc.items.length > MAX_FILMS) {
+      for (const dropped of doc.items.slice(MAX_FILMS)) {
+        if (dropped.file && !doc.ignored.includes(dropped.file)) doc.ignored.push(dropped.file);
+      }
+      doc.items = doc.items.slice(0, MAX_FILMS);
+    }
     writeJson('films.json', doc);
   }
   return {
@@ -267,6 +282,8 @@ export function listFilms(root, { scan = true } = {}) {
 export function addFilm(root, meta = {}) {
   const doc = filmsDoc();
   const rel = meta.file ? path.relative(root, path.resolve(root, meta.file)) : null;
+  // 重新出片登记同一个路径时，解除之前的「移出列表」忽略
+  if (rel && doc.ignored.includes(rel)) doc.ignored = doc.ignored.filter((x) => x !== rel);
 
   // 同一个文件只登记一次：目录扫描与渲染完成可能先后各记一条，
   // 结果同一集被切成两个编号（第 43、第 44 集指向同一个 mp4）
@@ -322,6 +339,13 @@ export function removeFilm(root, id, { deleteFile = false } = {}) {
     if (fs.existsSync(p)) fs.rmSync(p, { force: true });
   }
   doc.items.splice(idx, 1);
+  // 文件没删的话记进忽略名单：扫描不会再把这一条捞回来
+  if (deleteFile) {
+    const gi = doc.ignored.indexOf(it.file);
+    if (gi >= 0) doc.ignored.splice(gi, 1);
+  } else if (it.file && !doc.ignored.includes(it.file)) {
+    doc.ignored.push(it.file);
+  }
   writeJson('films.json', doc);
   return { removed: it, fileDeleted: Boolean(deleteFile) };
 }
@@ -339,8 +363,12 @@ export function resetNumbering(root, { from = 1, renumber = false } = {}) {
     sorted.forEach((it, i) => {
       it.episode = start + i;
     });
+    doc.nextEpisode = start + doc.items.length;
+  } else {
+    // 只归零「下一集」时，历史集号还留着：新集不能从 1 开始撞号
+    const maxEp = doc.items.reduce((m, i) => Math.max(m, Number(i.episode) || 0), 0);
+    doc.nextEpisode = Math.max(start, maxEp + 1);
   }
-  doc.nextEpisode = start + (renumber ? doc.items.length : 0);
   writeJson('films.json', doc);
   return { nextEpisode: doc.nextEpisode, count: doc.items.length, renumbered: Boolean(renumber), from: start };
 }

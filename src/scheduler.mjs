@@ -168,6 +168,9 @@ export async function runOnce(root, opts = {}) {
     let published = null;
     let submitted = false;
     const pubMeta = scriptMod.publishMeta(script);
+    // 演练模式必须在整条发布链路上生效：填表、点投稿都不能做，
+    // 否则「打开演练」只是少复制一段文案，照样会把片子发出去。
+    const dryMode = settings.publish.dryRun !== false;
     if (video && sc.publish) {
       try {
         const pub = await import('./publish.mjs');
@@ -176,12 +179,14 @@ export async function runOnce(root, opts = {}) {
           title: pubMeta.title,
           desc: pubMeta.desc,
           tags: pubMeta.tags,
-          dryRun: settings.publish.dryRun !== false,
+          dryRun: dryMode,
         });
         steps.push(published.ok ? '已把成片交给客户端（等你在客户端点投稿）' : '客户端没找到，仅出片');
         if (!published.ok) warnings.push(published.message || '客户端不可用');
 
-        if (published.ok && settings.publish.autoFill) {
+        if (published.ok && dryMode) {
+          steps.push('演练模式：只把成片交给客户端，不自动填表、不点投稿');
+        } else if (published.ok && settings.publish.autoFill) {
           const bili = await import('./bili.mjs');
           const cfg = bili.loadBiliConfig(root);
           await bili.ensureClient(cfg);
@@ -239,7 +244,9 @@ export async function runOnce(root, opts = {}) {
           const w = await commentsMod.watch(root, {
             minutes: watchMinutes,
             intervalMinutes: Number(sc.commentsInterval ?? settings.comments.intervalMinutes ?? 5),
-            send: settings.publish.autoSubmit === true || settings.comments.autoReply === true,
+            // 自动回复只认 comments.autoReply：原来这里跟着 autoSubmit 走，
+            // 用户为了发视频打开自动投稿，评论也会被自动发出去
+            send: settings.comments.autoReply === true,
             maxPerRun: Number(settings.comments.maxPerRun ?? 3),
             rules: settings.comments.rules,
             fallback: settings.comments.fallback,
@@ -333,11 +340,15 @@ export async function publishLatest(root, { reason = 'schedule' } = {}) {
   const warnings = [];
   let published = null;
   let submitted = false;
+  // 和 runOnce 一样：演练模式下任何对外动作都不做
+  const dryMode = settings.publish.dryRun !== false;
   try {
     const pub = await import('./publish.mjs');
-    published = await pub.publishViaClient({ video, ...meta, dryRun: settings.publish.dryRun !== false });
+    published = await pub.publishViaClient({ video, ...meta, dryRun: dryMode });
     steps.push(published.ok ? '已把成片交给客户端' : '客户端没找到，未发布');
-    if (published.ok && settings.publish.autoFill) {
+    if (published.ok && dryMode) {
+      steps.push('演练模式：只把成片交给客户端，不自动填表、不点投稿');
+    } else if (published.ok && settings.publish.autoFill) {
       const bili = await import('./bili.mjs');
       const cfg = bili.loadBiliConfig(root);
       await bili.ensureClient(cfg);
