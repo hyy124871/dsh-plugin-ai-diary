@@ -326,8 +326,26 @@ export function removeFilm(root, id, { deleteFile = false } = {}) {
   return { removed: it, fileDeleted: Boolean(deleteFile) };
 }
 
-/* ---------------- 发布记录 ---------------- */
+/**
+ * 集数归零：把「下一集编号」重置到 from（默认 1）。
+ * renumber=true 时连已有成片也按拍摄时间从旧到新重排（1、2、3…），
+ * 否则只动下一集编号，历史编号保持不变。
+ */
+export function resetNumbering(root, { from = 1, renumber = false } = {}) {
+  const doc = filmsDoc();
+  const start = Math.max(1, Math.floor(Number(from) || 1));
+  if (renumber) {
+    const sorted = doc.items.slice().sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt)));
+    sorted.forEach((it, i) => {
+      it.episode = start + i;
+    });
+  }
+  doc.nextEpisode = start + (renumber ? doc.items.length : 0);
+  writeJson('films.json', doc);
+  return { nextEpisode: doc.nextEpisode, count: doc.items.length, renumbered: Boolean(renumber), from: start };
+}
 
+/* ---------------- 发布记录 ---------------- */
 export function logPublish(root, entry = {}) {
   const doc = readJson('logs/publish.json', { items: [] });
   if (!Array.isArray(doc.items)) doc.items = [];

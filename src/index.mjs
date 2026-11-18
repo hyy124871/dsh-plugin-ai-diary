@@ -1222,6 +1222,7 @@ export function apply(ctx, config = {}) {
         'refreshComments',
         'addAsset',
         'removeFilm',
+        'resetEpisodes',
         'publishNow',
         'planPreview',
         'biliQrStart',
@@ -1311,6 +1312,11 @@ export function apply(ctx, config = {}) {
               if (body.action === 'removeFilm') {
                 const r = ST.removeFilm(ROOT, body.id, { deleteFile: Boolean(body.deleteFile) });
                 return send(200, { ok: true, removed: r, ...snapshot() });
+              }
+              // 集数归零：下一集编号回到 from（默认 1），可选把已有成片一起重排
+              if (body.action === 'resetEpisodes') {
+                const r = ST.resetNumbering(ROOT, { from: body.from, renumber: body.renumber !== false });
+                return send(200, { ok: true, reset: r, ...snapshot() });
               }
               if (body.action === 'publishNow') {
                 const SCH = await import('./scheduler.mjs');
