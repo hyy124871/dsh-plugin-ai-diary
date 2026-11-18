@@ -107,7 +107,8 @@ export function merge(base, patch) {
 export function settingsPath(root) {
   if (process.env.AIDIARY_SETTINGS) return path.resolve(process.env.AIDIARY_SETTINGS);
   try {
-    const home = path.join(os.homedir(), '.ai-diary');
+    // AIDIARY_HOME 让测试/多实例指到自己的目录，别再写进真实家目录
+    const home = path.resolve(process.env.AIDIARY_HOME || path.join(os.homedir(), '.ai-diary'));
     fs.mkdirSync(home, { recursive: true });
     return path.join(home, 'settings.json');
   } catch {

@@ -1227,6 +1227,9 @@ export function apply(ctx, config = {}) {
         'biliQrStart',
         'biliQrPoll',
         'biliWhoami',
+        'testKey',
+        'testAllKeys',
+        'saveHandScript',
       ]);
       const dispose = webCtx.webServer.register({
         kind: 'exact',
@@ -1237,7 +1240,7 @@ export function apply(ctx, config = {}) {
             res.end(JSON.stringify(obj));
           };
           try {
-            const [S, U, ST, SD, VC, BL, LL] = await Promise.all([
+            const [S, U, ST, SD, VC, BL, LL, KT, HS] = await Promise.all([
               import('./settings.mjs'),
               import('./update.mjs'),
               import('./studio.mjs'),
@@ -1245,6 +1248,8 @@ export function apply(ctx, config = {}) {
               import('./voice.mjs'),
               import('./bili-login.mjs'),
               import('./llm.mjs'),
+              import('./keytest.mjs'),
+              import('./handscript.mjs'),
             ]);
             const snapshot = () => {
               const st = S.loadSettings(ROOT);
@@ -1327,6 +1332,20 @@ export function apply(ctx, config = {}) {
               if (body.action === 'biliWhoami') {
                 const me = await BL.whoami(ROOT);
                 return send(200, { ok: true, me, ...snapshot() });
+              }
+              // 测试连通：单把 / 全部
+              if (body.action === 'testKey') {
+                const r = await KT.testKey(ROOT, String(body.field || ''));
+                return send(200, { ok: r.ok, test: r });
+              }
+              if (body.action === 'testAllKeys') {
+                const r = await KT.testAllKeys(ROOT);
+                return send(200, { ok: r.ok, tests: r.rows, summary: r.summary });
+              }
+              // 手写剧本稿：解析 → 校验 → 落盘到 out/hand-xxxx.json
+              if (body.action === 'saveHandScript') {
+                const r = HS.saveDraft(ROOT, String(body.text || ''));
+                return send(200, { ok: r.ok, draft: r, ...snapshot() });
               }
             }
             if (body && body.action === 'check') {

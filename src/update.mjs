@@ -39,16 +39,28 @@ export function readLocalVersion(root) {
   }
 }
 
-/** 比较 semver，返回 -1 / 0 / 1 */
+/** 比较 semver（含预发布段），返回 -1 / 0 / 1。1.0.0-preview < 1.0.0 < 1.0.1 */
 export function compareVersion(a, b) {
-  const pa = String(a).replace(/^v/, '').split('.').map(Number);
-  const pb = String(b).replace(/^v/, '').split('.').map(Number);
+  const parse = (v) => {
+    const s = String(v || '').replace(/^v/, '').trim();
+    const [core, pre = ''] = s.split('-');
+    const nums = core.split('.').map((x) => {
+      const n = Number(x);
+      return Number.isFinite(n) ? n : 0;
+    });
+    return { nums, pre };
+  };
+  const A = parse(a);
+  const B = parse(b);
   for (let i = 0; i < 3; i++) {
-    const x = pa[i] || 0;
-    const y = pb[i] || 0;
+    const x = A.nums[i] || 0;
+    const y = B.nums[i] || 0;
     if (x !== y) return x > y ? 1 : -1;
   }
-  return 0;
+  if (A.pre === B.pre) return 0;
+  if (!A.pre) return 1; // 正式版比同号预发布版新
+  if (!B.pre) return -1;
+  return A.pre > B.pre ? 1 : -1;
 }
 
 function headers() {
@@ -461,6 +473,9 @@ export async function autoUpdate(root, { profile, repo, install = true } = {}) {
     stage: allOk ? 'installed' : 'install-failed',
     mode,
     current: allOk ? c.latest : c.current,
+    // 装完本地就是最新了，别再让面板挂着「有新版本」的旧结论
+    latest: allOk ? c.latest : c.latest,
+    hasUpdate: allOk ? false : Boolean(c.hasUpdate),
     error: allOk ? undefined : String(results.find((r) => !r.ok)?.error || '安装失败').slice(0, 300),
     installedVersion: allOk ? c.latest : undefined,
     installedAt: allOk ? new Date().toISOString() : undefined,
@@ -470,5 +485,17 @@ export async function autoUpdate(root, { profile, repo, install = true } = {}) {
     lastAttemptOk: allOk,
     targets: results.map((r) => ({ profile: r.profile, ok: r.ok })),
   });
-  return { ok: allOk, stage: 'installed', mode, ...c, ...d, targets: results, needsRestart: allOk, settingsBackup, healed: heal };
+  return {
+    ok: allOk,
+    stage: 'installed',
+    mode,
+    ...c,
+    hasUpdate: allOk ? false : c.hasUpdate,
+    current: allOk ? c.latest : c.current,
+    ...d,
+    targets: results,
+    needsRestart: allOk,
+    settingsBackup,
+    healed: heal,
+  };
 }
