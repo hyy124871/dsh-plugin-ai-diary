@@ -82,11 +82,50 @@ function paramsToSchema(parameters) {
     const p = { ...v };
     if (p.required === true) required.push(k);
     delete p.required;
+    // 宿主的 DSL 里有 type:'json'（任意 JSON），但标准 JSON Schema 只认
+    // object/array/string/number/integer/boolean/null。删掉 type 即为「任意值」。
+    if (p.type === 'json') delete p.type;
     properties[k] = p;
   }
   const schema = { type: 'object', properties, additionalProperties: false };
   if (required.length) schema.required = required;
   return schema;
+}
+
+/**
+ * 把「属性级 required」整理成合法 JSON Schema（对象级 required 数组）。
+ * 宿主的 assertSupportedJsonSchema 见到 properties.X.required 会直接拒绝，
+ * 原生 defineTool 会自动转，最小实现必须自己转，否则注册一步就被卡死。
+ */
+function normalizeValueSchema(node) {
+  if (!node || typeof node !== 'object' || Array.isArray(node)) return node;
+  const out = {};
+  for (const [k, v] of Object.entries(node)) {
+    if (k === 'required' && typeof v === 'boolean') continue;
+    if (k === 'properties' && v && typeof v === 'object' && !Array.isArray(v)) {
+      const props = {};
+      const req = Array.isArray(node.required) ? [...node.required] : [];
+      for (const [pk, pv] of Object.entries(v)) {
+        if (pv && typeof pv === 'object' && pv.required === true) {
+          const { required: _ignored, ...rest } = pv;
+          props[pk] = normalizeValueSchema(rest);
+          if (!req.includes(pk)) req.push(pk);
+        } else {
+          props[pk] = normalizeValueSchema(pv);
+        }
+      }
+      out.type = out.type || 'object';
+      out.properties = props;
+      if (req.length) out.required = req;
+      continue;
+    }
+    if ((k === 'items' || k === 'additionalProperties') && v && typeof v === 'object') {
+      out[k] = normalizeValueSchema(v);
+      continue;
+    }
+    out[k] = v;
+  }
+  return out;
 }
 
 /** 没有宿主工具包时的最小工厂：保证 register 要的 output{schema,render} 齐全 */
@@ -96,10 +135,19 @@ function miniDefineTool(options) {
   if (!output || typeof output !== 'object' || typeof output.render !== 'function' || !output.schema) {
     throw new Error(`defineTool(${options.name}): output must be { schema, render }`);
   }
-  return { ...options, parameters: paramsToSchema(options.parameters) };
+  return {
+    ...options,
+    parameters: paramsToSchema(options.parameters),
+    output: { ...output, schema: normalizeValueSchema(output.schema) },
+  };
 }
 
 function pickDefineTool() {
+  // 测试专用：强制走最小实现，验证 profile 里 require 失败时的兜底路径
+  if (process.env.AIDIARY_FORCE_MINI === '1') {
+    DEFINE_TOOL_SOURCE = 'mini(forced)';
+    return miniDefineTool;
+  }
   try {
     const h = typeof globalThis !== 'undefined' ? globalThis.harness : undefined;
     if (h && typeof h.defineTool === 'function') {
@@ -138,6 +186,10 @@ function precheckTool(tool) {
   if (typeof tool.execute !== 'function') problems.push('execute 不是函数');
   if (tool.parameters && !(tool.parameters.type === 'object' && tool.parameters.properties)) {
     problems.push('parameters 没归一化成 JSON Schema');
+  }
+  if (tool.output && tool.output.schema) {
+    const text = JSON.stringify(tool.output.schema);
+    if (/"required":true/.test(text)) problems.push('output.schema 里有属性级 required（宿主会拒）');
   }
   return problems;
 }
@@ -249,6 +301,10 @@ function out(summary, details = {}) {
 }
 
 function outputDef() {
+  // 注意：这里必须用宿主 value schema DSL 的写法（属性级 required: true）。
+  // 原生 defineTool 会把它转成标准 JSON Schema；最小实现由 normalizeValueSchema 转。
+  // 别改成对象级 required 数组——DSL 编译器不认，会直接抛
+  // "schema.required is not supported by the value schema DSL"。
   return {
     schema: {
       type: 'object',
