@@ -381,8 +381,9 @@ export async function renderEpisode(script, opts = {}) {
       mood: cur ? cur.mood : 'low',
     });
 
-    // 3) 角色（呼吸 / 浮动 / 轻摆）—— 位姿跟随模板：原版居中，模板族靠右让出纸面
-    if (charImg) {
+    // 3) 角色（呼吸 / 浮动 / 轻摆）—— 位姿跟随模板：原版居中，模板族靠右让出纸面。
+    //    tpl.char = null 的模板（对话卡）不画人物，整帧让给纸面。
+    if (charImg && tpl.char && Number(tpl.char.hR) > 0) {
       const h = H * tpl.char.hR;
       const w = (charImg.width / charImg.height) * h;
       const cx = W * tpl.char.xr;

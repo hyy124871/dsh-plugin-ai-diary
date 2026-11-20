@@ -33,6 +33,15 @@ function readVersion() {
   }
 }
 
+/** 面板「更新」卡里的一行更新简介：只写当前版本的要点，发版时随版本改 */
+const RELEASE_NOTE = {
+  '1.0.0': [
+    '对话卡模板重制：去掉主持与人物，改成一张米色纸页；设为默认模板。',
+    'B 站登录状态：显示昵称、剩余天数与到期日，每 6 小时保活，临近过期会提示。',
+    '客户端常驻托盘时 NO_WINDOW 修复：会唤醒窗口、轮询等待，失败时带出真实窗口列表。',
+  ],
+};
+
 /** 读完整个请求体并解析 JSON（面板 POST 用） */
 function readJsonBody(req, limit = 1 << 20) {
   return new Promise((resolve, reject) => {
@@ -1369,6 +1378,38 @@ export function apply(ctx, config = {}) {
   } catch (e) {
     console.warn('[ai-diary] 自动查新挂载失败：' + e.message);
   }
+  // B 站保活：启动 12 秒后验一次，之后每 6 小时验一次（不阻塞；成功就把会话到期时间顺延）。
+  // 没配 Cookie 时什么都不做，别在后台空打接口。
+  try {
+    ctx.effect(() => {
+      let timer = null;
+      let interval = null;
+      void (async () => {
+        try {
+          const [BL, S] = await Promise.all([import('./bili-login.mjs'), import('./settings.mjs')]);
+          const st = S.loadSettings(ROOT);
+          if (!process.env.BILI_COOKIE && !(st.keys && st.keys.bili)) return;
+          const run = () => {
+            void BL.keepAlive(ROOT).catch(() => {});
+          };
+          timer = setTimeout(run, 12000);
+          timer.unref?.();
+          interval = setInterval(run, 6 * 3600 * 1000);
+          interval.unref?.();
+        } catch {
+          /* 保活挂不上就等用户手动点 */
+        }
+      })();
+      return () => {
+        try {
+          clearTimeout(timer);
+          clearInterval(interval);
+        } catch {}
+      };
+    }, 'ai-diary: bili keepalive');
+  } catch (e) {
+    console.warn('[ai-diary] B 站保活挂载失败：' + e.message);
+  }
   try {
     ctx.effect(() => {
       fs.mkdirSync(path.join(ROOT, 'out'), { recursive: true });
@@ -1393,6 +1434,7 @@ export function apply(ctx, config = {}) {
         'biliQrStart',
         'biliQrPoll',
         'biliWhoami',
+        'biliKeepAlive',
         'testKey',
         'testAllKeys',
         'saveHandScript',
@@ -1426,6 +1468,7 @@ export function apply(ctx, config = {}) {
               }
               return {
                 version: readVersion(),
+                releaseNote: RELEASE_NOTE[readVersion()] || [],
                 enabled: Boolean(st.enabled),
                 update: st.update || {},
                 render: st.render || {},
@@ -1437,6 +1480,8 @@ export function apply(ctx, config = {}) {
                 // 之前 snapshot 漏了 publish，前端 cfg.publish 永远是 undefined，
                 // 点击只会写进 settings.json 而读不回来，看起来就是「点不动」。
                 publish: st.publish || {},
+                // B 站登录态：昵称、剩余天数、到期预警（面板「发布」页据此显示）
+                bili: BL.sessionInfo(ROOT),
                 keys,
                 // 面板下拉要的可选型号清单（生图 / 配音 / 写台词）
                 models: {
@@ -1507,6 +1552,11 @@ export function apply(ctx, config = {}) {
               if (body.action === 'biliWhoami') {
                 const me = await BL.whoami(ROOT);
                 return send(200, { ok: true, me, ...snapshot() });
+              }
+              // 保活：成功就把会话到期时间顺延（面板「已验证 / 剩余 N 天」读的就是这条）
+              if (body.action === 'biliKeepAlive') {
+                const r = await BL.keepAlive(ROOT);
+                return send(200, { ok: true, keepAlive: r, ...snapshot() });
               }
               // 测试连通：单把 / 全部
               if (body.action === 'testKey') {

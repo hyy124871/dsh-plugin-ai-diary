@@ -79,23 +79,84 @@ function joinCookie(obj) {
     .join('; ');
 }
 
-/** 拿现有 Cookie 问一次 nav，确认到底登录没有 */
-export async function whoami(root) {
+/** 网页端 SESSDATA 有效期约半年；每次保活成功都按这个窗口顺延 */
+export const SESSION_DAYS = 180;
+const DAY_MS = 86400000;
+
+/** 面板读的登录态：剩余天数 + 预警级别（none 没 Cookie / bad 验不过 / expired / soon / ok） */
+export function sessionInfo(root) {
+  const st = loadSettings(root);
+  const s = st.biliSession || {};
+  const cookie = process.env.BILI_COOKIE || String((st.keys && st.keys.bili) || '');
+  const now = Date.now();
+  const exp = s.expiresAt ? Date.parse(s.expiresAt) : 0;
+  const daysLeft = exp ? Math.ceil((exp - now) / DAY_MS) : null;
+  let level = 'ok';
+  if (!cookie) level = 'none';
+  else if (!s.checkedAt) level = 'unknown';
+  else if (!s.ok) level = 'bad';
+  else if (daysLeft !== null && daysLeft <= 0) level = 'expired';
+  else if (daysLeft !== null && daysLeft <= 7) level = 'soon';
+  return {
+    cookieReady: Boolean(cookie),
+    ok: Boolean(s.ok),
+    uname: s.uname || '',
+    mid: s.mid || 0,
+    lastOkAt: s.lastOkAt || null,
+    checkedAt: s.checkedAt || null,
+    expiresAt: s.expiresAt || null,
+    daysLeft,
+    level,
+    failReason: s.failReason || '',
+  };
+}
+
+function recordSession(root, patch) {
+  const prev = loadSettings(root).biliSession || {};
+  saveSettings(root, { biliSession: { ...prev, checkedAt: new Date().toISOString(), ...patch } });
+}
+
+/** 拿现有 Cookie 问一次 nav，确认到底登录没有；成功就记下昵称并顺延会话到期时间 */
+export async function whoami(root, opts = {}) {
   const st = loadSettings(root);
   const cookie = process.env.BILI_COOKIE || String((st.keys && st.keys.bili) || '');
-  if (!cookie) return { ok: false, reason: '还没配 Cookie' };
+  if (!cookie) {
+    recordSession(root, { ok: false, failReason: '还没配 Cookie' });
+    return { ok: false, reason: '还没配 Cookie' };
+  }
   try {
     const res = await fetch('https://api.bilibili.com/x/web-interface/nav', {
       headers: { 'User-Agent': UA, Referer: HOME, Cookie: cookie },
     });
     const j = await res.json();
     if (j && j.code === 0 && j.data && j.data.isLogin) {
+      if (opts.record !== false) {
+        const now = new Date();
+        recordSession(root, {
+          ok: true,
+          uname: j.data.uname,
+          mid: j.data.mid,
+          lastOkAt: now.toISOString(),
+          expiresAt: new Date(now.getTime() + SESSION_DAYS * DAY_MS).toISOString(),
+          failReason: '',
+        });
+      }
       return { ok: true, uname: j.data.uname, mid: j.data.mid };
     }
-    return { ok: false, reason: `接口返回 ${j && j.code}（${(j && j.message) || '未登录'}）` };
+    const reason = `接口返回 ${j && j.code}（${(j && j.message) || '未登录'}）`;
+    recordSession(root, { ok: false, failReason: reason });
+    return { ok: false, reason };
   } catch (e) {
-    return { ok: false, reason: String((e && e.message) || e) };
+    const reason = String((e && e.message) || e);
+    recordSession(root, { ok: false, failReason: reason });
+    return { ok: false, reason };
   }
+}
+
+/** 保活：成功即把到期时间顺延到「现在 + 180 天」，等于让登录态一直活着 */
+export async function keepAlive(root) {
+  const me = await whoami(root, { record: true });
+  return { ...me, at: new Date().toISOString(), session: sessionInfo(root) };
 }
 
 /** 出一张登录二维码：PNG 直接给 dataURL，面板 <img> 就能显示 */

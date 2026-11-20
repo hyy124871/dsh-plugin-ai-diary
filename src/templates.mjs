@@ -66,11 +66,12 @@ export const TEMPLATES = {
     accent: '#2E8C8C',
   },
 
-  // 主推版式：左边一张对话卡（主持名 + 逐字台词），人物放右下角，暗红棕背景
+  // 主推版式：一张米色纸页独占左侧（刊头 / 页眉 / 台词 / 页脚），右侧留白给竖排刊名与印章。
+  // 不画人物，也不再有「本期主持」——画面就是一张被翻开的采访稿。
   chat: {
     id: 'chat',
-    label: '对话卡（左卡右人）',
-    char: { xr: 0.845, footR: 1.00, hR: 0.62 },
+    label: '对话卡（米色纸页）',
+    char: null,
     hud: 'chat',
     subtitle: { yR: 0.895, color: '#F7F1E6', shadow: 'rgba(0,0,0,0.45)', bandTopR: 0.66, bandBottom: 0.34 },
     bg: 'ember',
@@ -608,78 +609,171 @@ function wrapChars(ctx, text, maxW) {
   return lines;
 }
 
-export function drawChatPaper(ctx, { W, H, t, ep, day, remain, balance, charName, fontFamily, beatIndex, cur, script, tl }) {
-  const [zh, en] = CHAT_NAMES[String(charName || '').toLowerCase()] || [String(charName || 'AI'), String(charName || '').toUpperCase()];
+function spaced(ctx, text, x, y, gap) {
+  let cx = x;
+  for (const ch of [...String(text || '')]) {
+    ctx.fillText(ch, cx, y);
+    cx += ctx.measureText(ch).width + gap;
+  }
+  return cx - gap;
+}
 
-  // 1) 左上标题 + 版本胶囊（横竖屏同一套逻辑尺寸：横屏 1280 逻辑 ≈ 1920 实体）
+function spacedWidth(ctx, text, gap) {
+  let w = 0;
+  for (const ch of [...String(text || '')]) w += ctx.measureText(ch).width + gap;
+  return Math.max(0, w - gap);
+}
+
+function spacedCenter(ctx, text, cx, y, gap) {
+  spaced(ctx, text, cx - spacedWidth(ctx, text, gap) / 2, y, gap);
+}
+
+/**
+ * 对话卡（去人物版）：一张米色纸卡独占左侧，右侧留白给竖排刊名与印章。
+ * - 卡内只留「页眉 / 台词 / 页脚」三层，不再出现主持人与立绘
+ * - 当前这镜的段落左边有一条强调色指针，历史段落压在墨色里
+ * - 全部尺寸按 k = W/720 缩放，横屏竖屏同一套观感
+ */
+export function drawChatPaper(ctx, { W, H, t, ep, day, remain, balance, charName, fontFamily, beatIndex, cur, script, tl }) {
+  const [zh] = CHAT_NAMES[String(charName || '').toLowerCase()] || [String(charName || 'AI'), ''];
+  const days = Number(ep && ep.day != null ? ep.day : day != null ? day : 1);
+  const money = Number(ep && ep.balance != null ? ep.balance : balance != null ? balance : 1);
+  const total = (tl && tl.length) || 1;
+  const idx = Math.min(total - 1, Math.max(0, beatIndex || 0));
+  const k = W / 720;
+  const px = (v) => Math.round(v * k);
+
+  const PAPER_HI = '#F5EDDB';
+  const PAPER_LO = '#E7DAC2';
+  const INK = '#2B2118';
+  const ACCENT = '#C2632A';
+  const RULE = 'rgba(150,120,88,0.32)';
+  const RULE_SOFT = 'rgba(150,120,88,0.14)';
+  const MUTED_INK = 'rgba(86,66,46,0.56)';
+
+  // ---------- 1) 左上刊头 ----------
   ctx.textAlign = 'left';
-  ctx.fillStyle = '#F2E7D6';
-  ctx.font = `700 22px ${fontFamily}`;
-  ctx.fillText('AI 日記', W * 0.021, H * 0.086);
-  const titleW = ctx.measureText('AI 日記').width;
+  ctx.textBaseline = 'alphabetic';
+  ctx.fillStyle = 'rgba(244,235,220,0.94)';
+  ctx.font = `700 ${px(20)}px ${fontFamily}`;
+  const headEnd = spaced(ctx, 'AI 日記', W * 0.024, H * 0.078, px(3.4));
 
   const capText = 'Homo sapiens v1.0';
-  ctx.font = `600 13px ${fontFamily}`;
-  const capH = 20;
-  const capW = ctx.measureText(capText).width + 18;
-  const capX = W * 0.021 + titleW + 10;
-  const capY = H * 0.086 - capH * 0.72;
-  ctx.strokeStyle = 'rgba(232,199,154,0.55)';
+  ctx.font = `600 ${px(11)}px ${fontFamily}`;
+  const capH = px(22);
+  const capW = spacedWidth(ctx, capText, px(0.9)) + px(20);
+  const capX = headEnd + px(12);
+  const capY = H * 0.078 - capH * 0.70;
+  ctx.strokeStyle = 'rgba(232,199,154,0.42)';
   ctx.lineWidth = 1;
-  rr(ctx, capX, capY, capW, capH, capH / 2); ctx.stroke();
-  ctx.fillStyle = 'rgba(232,199,154,0.85)';
-  ctx.fillText(capText, capX + 9, capY + capH * 0.70);
+  rr(ctx, capX, capY, capW, capH, capH / 2);
+  ctx.stroke();
+  ctx.fillStyle = 'rgba(232,199,154,0.80)';
+  ctx.font = `600 ${px(11)}px ${fontFamily}`;
+  spaced(ctx, capText, capX + px(10), capY + capH * 0.70, px(0.9));
 
-  // 2) 大对话卡
-  const cx = W * 0.020, cy = H * 0.145, cw = W * 0.675, ch = H * 0.640;
+  // 刊头下的短横线
+  ctx.strokeStyle = 'rgba(232,199,154,0.30)';
+  ctx.beginPath();
+  ctx.moveTo(W * 0.024, H * 0.078 + px(12));
+  ctx.lineTo(W * 0.024 + px(84), H * 0.078 + px(12));
+  ctx.stroke();
+
+  // ---------- 2) 纸卡 ----------
+  const cw = W * 0.706;
+  const ch = H * 0.664;
+  const cx = W * 0.026;
+  const cy = H * 0.130;
+
   ctx.save();
-  ctx.shadowColor = 'rgba(0,0,0,0.46)'; ctx.shadowBlur = 18; ctx.shadowOffsetY = 7;
-  ctx.fillStyle = '#F0E7D5';
-  rr(ctx, cx, cy, cw, ch, 12); ctx.fill();
+  ctx.shadowColor = 'rgba(0,0,0,0.50)';
+  ctx.shadowBlur = px(26);
+  ctx.shadowOffsetY = px(10);
+  const grad = ctx.createLinearGradient(cx, cy, cx, cy + ch);
+  grad.addColorStop(0, PAPER_HI);
+  grad.addColorStop(1, PAPER_LO);
+  ctx.fillStyle = grad;
+  rr(ctx, cx, cy, cw, ch, px(14));
+  ctx.fill();
   ctx.restore();
 
-  // 细网格纸纹
+  // 纸纹：淡横格 + 更淡竖格
   ctx.save();
-  rr(ctx, cx, cy, cw, ch, 12); ctx.clip();
-  ctx.strokeStyle = 'rgba(160,130,95,0.13)';
+  rr(ctx, cx, cy, cw, ch, px(14));
+  ctx.clip();
   ctx.lineWidth = 1;
-  const gap = 20;
-  for (let gx = cx + gap; gx < cx + cw; gx += gap) { ctx.beginPath(); ctx.moveTo(gx, cy); ctx.lineTo(gx, cy + ch); ctx.stroke(); }
-  for (let gy = cy + gap; gy < cy + ch; gy += gap) { ctx.beginPath(); ctx.moveTo(cx, gy); ctx.lineTo(cx + cw, gy); ctx.stroke(); }
+  const gapY = px(26);
+  const gapX = px(26);
+  ctx.strokeStyle = RULE_SOFT;
+  for (let gy = cy + gapY; gy < cy + ch; gy += gapY) {
+    ctx.beginPath(); ctx.moveTo(cx, gy); ctx.lineTo(cx + cw, gy); ctx.stroke();
+  }
+  ctx.strokeStyle = 'rgba(150,120,88,0.08)';
+  for (let gx = cx + gapX; gx < cx + cw; gx += gapX) {
+    ctx.beginPath(); ctx.moveTo(gx, cy); ctx.lineTo(gx, cy + ch); ctx.stroke();
+  }
+  // 左上角一层柔光，纸面不平
+  const sheen = ctx.createRadialGradient(cx + cw * 0.18, cy + ch * 0.06, 0, cx + cw * 0.18, cy + ch * 0.06, cw * 0.85);
+  sheen.addColorStop(0, 'rgba(255,250,238,0.22)');
+  sheen.addColorStop(1, 'rgba(255,250,238,0)');
+  ctx.fillStyle = sheen;
+  ctx.fillRect(cx, cy, cw, ch);
   ctx.restore();
 
-  ctx.strokeStyle = 'rgba(150,120,88,0.30)';
+  // 双线边 + 四角裁切标
+  ctx.strokeStyle = RULE;
   ctx.lineWidth = 1;
-  rr(ctx, cx + 4, cy + 4, cw - 8, ch - 8, 9); ctx.stroke();
+  rr(ctx, cx, cy, cw, ch, px(14));
+  ctx.stroke();
+  ctx.strokeStyle = 'rgba(150,120,88,0.18)';
+  rr(ctx, cx + px(5), cy + px(5), cw - px(10), ch - px(10), px(10));
+  ctx.stroke();
 
-  // 3) 主持名（中文墨色 + 英文强调色）
-  const px = cx + 28, py = cy + 34;
-  ctx.fillStyle = 'rgba(90,70,50,0.62)';
-  ctx.font = `600 13px ${fontFamily}`;
-  ctx.fillText('本期主持', px, py);
+  const cornerLen = px(13);
+  ctx.strokeStyle = 'rgba(120,92,62,0.38)';
+  for (const [ax, ay, dx, dy] of [
+    [cx + px(16), cy + px(16), 1, 1],
+    [cx + cw - px(16), cy + px(16), -1, 1],
+    [cx + px(16), cy + ch - px(16), 1, -1],
+    [cx + cw - px(16), cy + ch - px(16), -1, -1],
+  ]) {
+    ctx.beginPath();
+    ctx.moveTo(ax, ay + dy * cornerLen);
+    ctx.lineTo(ax, ay);
+    ctx.lineTo(ax + dx * cornerLen, ay);
+    ctx.stroke();
+  }
 
-  ctx.font = `700 40px ${fontFamily}`;
-  ctx.fillStyle = '#2B2118';
-  ctx.fillText(zh, px, py + 46);
-  const zhW = ctx.measureText(zh).width;
-  ctx.fillStyle = '#C2632A';
-  ctx.fillText(en, px + zhW + 10, py + 46);
+  // ---------- 3) 卡内页眉 ----------
+  const padX = px(32);
+  const headY = cy + px(38);
+  ctx.fillStyle = ACCENT;
+  ctx.font = `700 ${px(10)}px ${fontFamily}`;
+  spaced(ctx, 'AI DIARY  /  TRANSCRIPT', cx + padX, headY, px(2));
 
-  ctx.strokeStyle = 'rgba(160,130,95,0.30)';
-  ctx.beginPath(); ctx.moveTo(px, py + 66); ctx.lineTo(cx + cw - 28, py + 66); ctx.stroke();
+  ctx.textAlign = 'right';
+  ctx.fillStyle = 'rgba(120,92,62,0.60)';
+  ctx.font = `600 ${px(10)}px ${fontFamily}`;
+  ctx.fillText(`NO. ${String(days).padStart(3, '0')}`, cx + cw - padX, headY);
+  ctx.textAlign = 'left';
 
-  // 4) 卡内台词：最近几镜像对话记录一样往上堆，当前这镜逐字打出来
-  if (t >= 1.2 && tl && tl.length) {
-    const idx = Math.min(tl.length - 1, Math.max(0, beatIndex || 0));
+  ctx.strokeStyle = RULE;
+  ctx.beginPath();
+  ctx.moveTo(cx + padX, headY + px(14));
+  ctx.lineTo(cx + cw - padX, headY + px(14));
+  ctx.stroke();
+
+  // ---------- 4) 台词 ----------
+  const bodyTop = headY + px(46);
+  const bodyX = cx + padX + px(12);
+  const bodyW = cw - padX * 2 - px(12);
+  const footY = cy + ch - px(26);
+
+  // 先收段落，再按文本量决定字号：只有一两句时用大字，免得纸面显得空
+  const raw = [];
+  if (t >= 0.9 && tl && tl.length) {
     const from = Math.max(0, idx - 3);
-    const bodyX = px, bodyY = py + 90, bodyW = cw - 56;
-    const fsBody = 22;
-    const lh = Math.round(fsBody * 1.7);
-    const bottom = cy + ch - 36;
-    const maxRows = Math.max(1, Math.floor((bottom - bodyY) / lh));
-
-    const blocks = [];
-    for (let i = from; i <= idx; i++) {
+    for (let i = from; i <= idx; i += 1) {
       const b = tl[i] || {};
       let txt = String(b.text || '');
       if (i === idx) {
@@ -687,52 +781,135 @@ export function drawChatPaper(ctx, { W, H, t, ep, day, remain, balance, charName
         const chars = [...txt];
         txt = chars.slice(0, Math.max(0, Math.min(chars.length, Math.floor(chars.length * Math.min(1, inBeat * 1.25))))).join('');
       }
-      if (!txt) continue;
-      ctx.font = `500 ${fsBody}px ${fontFamily}`;
-      blocks.push({ lines: wrapChars(ctx, txt, bodyW), cur: i === idx });
+      if (txt) raw.push({ txt, cur: i === idx });
     }
+  }
+  const charsAll = raw.reduce((n, b) => n + [...b.txt].length, 0);
+  // 只有一句话时放大，占住纸面；一旦有历史段落就回到常规字号，保证能同时看到上一段
+  const big = raw.length <= 1 && charsAll <= 24;
+  const fsHist = big ? px(24) : px(20);
+  const fsCur = big ? px(34) : px(23);
+  const lh = Math.round(fsCur * (big ? 1.48 : 1.56));
+  const avail = footY - px(34) - bodyTop;
+  const maxRows = Math.max(1, Math.floor(avail / lh));
 
-    const rows = [];
-    blocks.forEach((b, bi) => {
-      if (bi > 0) rows.push({ gap: true });
-      for (const ln of b.lines) rows.push({ ln, cur: b.cur });
-    });
+  const blocks = raw.map((b) => {
+    ctx.font = `${b.cur ? 600 : 500} ${b.cur ? fsCur : fsHist}px ${fontFamily}`;
+    return { lines: wrapChars(ctx, b.txt, bodyW), cur: b.cur };
+  });
 
-    let y = bodyY;
-    rows.slice(-maxRows).forEach((r) => {
-      if (r.gap) { y += lh * 0.42; return; }
-      ctx.fillStyle = r.cur ? '#33261B' : 'rgba(86,66,46,0.56)';
-      ctx.fillText(r.ln, bodyX, y);
-      y += lh;
-    });
+  const rows = [];
+  blocks.forEach((b, bi) => {
+    if (bi > 0) rows.push({ gap: true });
+    for (const ln of b.lines) rows.push({ ln, cur: b.cur });
+  });
+
+  const shown = rows.slice(-maxRows);
+  let contentH = 0;
+  for (const r of shown) contentH += r.gap ? Math.round(lh * 0.62) : lh;
+  let y = bodyTop + Math.max(px(4), (avail - contentH) * 0.40) + lh;
+
+  const bodyA = t < 1.50 ? 0 : Math.min(1, (t - 1.50) / 0.40);
+  if (bodyA > 0) {
+  ctx.save();
+  ctx.globalAlpha = bodyA;
+
+  // 引号贴着第一行上沿，像稿纸上的引文起头
+  let firstY = y;
+  for (const r of shown) { if (r.ln) break; firstY += Math.round(lh * 0.62); }
+  ctx.fillStyle = 'rgba(194,99,42,0.24)';
+  ctx.font = `700 ${px(40)}px Georgia, ${fontFamily}`;
+  ctx.fillText('“', bodyX - px(4), firstY - fsCur * 0.88);
+
+  shown.forEach((r) => {
+    if (r.gap) {
+      ctx.fillStyle = 'rgba(120,92,62,0.52)';
+      ctx.font = `600 ${px(14)}px ${fontFamily}`;
+      spaced(ctx, '·   ·   ·', bodyX + px(8), y, px(6));
+      y += Math.round(lh * 0.62);
+      return;
+    }
+    const fs = r.cur ? fsCur : fsHist;
+    if (r.cur) {
+      ctx.fillStyle = 'rgba(194,99,42,0.85)';
+      ctx.fillRect(bodyX - px(11), y - fs * 0.80, px(2.8), fs * 1.10);
+    }
+    ctx.fillStyle = r.cur ? '#33261B' : MUTED_INK;
+    ctx.font = `${r.cur ? 600 : 500} ${fs}px ${fontFamily}`;
+    ctx.fillText(r.ln, bodyX, y);
+    y += lh;
+  });
+  ctx.restore();
   }
 
-  // 5) 卡片右下角镜号
-  const totalShots = (tl && tl.length) || 1;
-  ctx.fillStyle = 'rgba(90,70,50,0.42)';
-  ctx.font = `600 11px ${fontFamily}`;
-  ctx.textAlign = 'right';
-  ctx.fillText(`${String((beatIndex || 0) + 1).padStart(2, '0')} / ${String(totalShots).padStart(2, '0')}`, cx + cw - 22, cy + ch - 14);
+  // ---------- 5) 页脚 ----------
+  ctx.strokeStyle = RULE;
+  ctx.beginPath();
+  ctx.moveTo(cx + padX, footY - px(20));
+  ctx.lineTo(cx + cw - padX, footY - px(20));
+  ctx.stroke();
+
+  ctx.fillStyle = 'rgba(76,58,40,0.72)';
+  ctx.font = `600 ${px(10)}px ${fontFamily}`;
+  spaced(ctx, `DAY ${days}   ·   餘額 ¥${money.toFixed(2)}`, cx + padX, footY, px(1.2));
+
+  const footR = `評測員 ${zh}   ·   ${String(idx + 1).padStart(2, '0')}/${String(total).padStart(2, '0')}`;
+  ctx.font = `600 ${px(10)}px ${fontFamily}`;
+  const footRW = spacedWidth(ctx, footR, px(1.2));
+  ctx.fillStyle = 'rgba(120,92,62,0.58)';
+  spaced(ctx, footR, cx + cw - padX - footRW, footY, px(1.2));
   ctx.textAlign = 'left';
 
-  // 6) 左下 REC 行
-  const recY = H * 0.952;
-  ctx.fillStyle = Math.sin(t * 4.4) > -0.2 ? '#E8582F' : 'rgba(232,88,47,0.28)';
-  ctx.beginPath(); ctx.arc(W * 0.026, recY - 4, 3.2, 0, Math.PI * 2); ctx.fill();
-  ctx.fillStyle = 'rgba(240,230,215,0.72)';
-  ctx.font = `600 12px ${fontFamily}`;
-  const tc = `T+${String(Math.floor(t)).padStart(2, '0')}:${String(Math.floor((t % 1) * 24)).padStart(2, '0')}`;
-  ctx.fillText(`REC  SUBJECT: HOMO SAPIENS   ${tc}`, W * 0.038, recY);
+  // ---------- 6) 卡外右侧：竖排刊名 + 印章 ----------
+  const sideX = cx + cw + W * 0.052;
+  ctx.save();
+  ctx.translate(sideX, H * 0.300);
+  ctx.rotate(Math.PI / 2);
+  ctx.fillStyle = 'rgba(240,230,212,0.26)';
+  ctx.font = `700 ${px(11)}px ${fontFamily}`;
+  spaced(ctx, 'HOMO SAPIENS  ·  FIELD NOTES', 0, 0, px(2.2));
+  ctx.restore();
 
-  // 7) 人物脚下的「評測員」铭牌
-  const badgeW = 140, badgeH = 30;
-  const badgeX = W * 0.845 - badgeW / 2, badgeY = H * 0.952;
-  ctx.fillStyle = 'rgba(240,232,216,0.95)';
-  rr(ctx, badgeX, badgeY, badgeW, badgeH, 4); ctx.fill();
-  ctx.fillStyle = '#8A5A2B';
-  ctx.font = `700 13px ${fontFamily}`;
+  const sealX = W * 0.902;
+  const sealY = H * 0.600;
+  const sealR = px(36);
+  ctx.save();
+  ctx.translate(sealX, sealY);
+  ctx.rotate(-0.12);
+  ctx.strokeStyle = 'rgba(194,99,42,0.46)';
+  ctx.lineWidth = px(1.6);
+  ctx.beginPath(); ctx.arc(0, 0, sealR, 0, Math.PI * 2); ctx.stroke();
+  ctx.lineWidth = px(0.9);
+  ctx.beginPath(); ctx.arc(0, 0, sealR - px(5), 0, Math.PI * 2); ctx.stroke();
+  ctx.fillStyle = 'rgba(194,99,42,0.56)';
   ctx.textAlign = 'center';
-  ctx.fillText(`評測員 · ${zh}`, badgeX + badgeW / 2, badgeY + badgeH * 0.69);
+  ctx.font = `700 ${px(22)}px ${fontFamily}`;
+  ctx.fillText('AI', 0, px(8));
+  ctx.font = `700 ${px(9)}px ${fontFamily}`;
+  spacedCenter(ctx, 'DIARY', 0, px(22), px(2.2));
+  ctx.fillStyle = 'rgba(194,99,42,0.38)';
+  ctx.font = `600 ${px(6.5)}px ${fontFamily}`;
+  spacedCenter(ctx, 'CERTIFIED', 0, -px(16), px(1.4));
+  ctx.restore();
+  ctx.textAlign = 'left';
+
+  // ---------- 7) 左下 REC ----------
+  const recY = H * 0.952;
+  const blink = Math.sin(t * 4.4) > -0.2;
+  ctx.fillStyle = blink ? '#E8582F' : 'rgba(232,88,47,0.26)';
+  ctx.beginPath(); ctx.arc(W * 0.026, recY - px(4), px(3.2), 0, Math.PI * 2); ctx.fill();
+
+  ctx.fillStyle = 'rgba(240,230,215,0.74)';
+  ctx.font = `600 ${px(11)}px ${fontFamily}`;
+  const tc = `T+${String(Math.floor(t)).padStart(2, '0')}:${String(Math.floor((t % 1) * 24)).padStart(2, '0')}`;
+  const recEnd = spaced(ctx, `REC   AI DIARY  ·  TAKE ${String(idx + 1).padStart(2, '0')}   ${tc}`, W * 0.040, recY, px(1.2));
+
+  ctx.strokeStyle = 'rgba(240,230,215,0.18)';
+  ctx.beginPath();
+  ctx.moveTo(recEnd + px(14), recY - px(4));
+  ctx.lineTo(cx + cw, recY - px(4));
+  ctx.stroke();
+
   ctx.textAlign = 'left';
 }
 
@@ -772,7 +949,7 @@ const INTRO_PALETTE = {
   chat: {
     paper: '#F4EEE2', ink: '#2B2118', accent: '#C2632A',
     frame: 'rgba(120,90,60,0.32)', watermark: 'rgba(194,99,42,0.10)',
-    kicker: 'AI DIARY / 本期直播', footer: 'rgba(58,44,32,0.72)',
+    kicker: 'AI DIARY / FIELD NOTES', footer: 'rgba(58,44,32,0.72)',
     outroRGB: '194,99,42', outroLabel: 'END OF THE DAY', outroText: '#F7F1E6',
   },
 };
@@ -784,6 +961,41 @@ export function drawTemplateIntro(ctx, tpl, { W, H, t, ep, script, fontFamily, w
   const a = t < 0.55 ? t / 0.55 : t < 0.95 ? 1 : Math.max(0, 1 - (t - 0.95) / 0.45);
   if (a <= 0) { ctx.globalAlpha = 1; ctx.textAlign = 'left'; return true; }
   const P = pal(tpl);
+
+  // 对话卡：不另起一张卡，正文区在片头期间留白，只在纸上写开场标题
+  if (tpl.id === 'chat') {
+    const cw = W * 0.706, ch = H * 0.664, cx = W * 0.026, cy = H * 0.130;
+    const padX = Math.round(32 * k);
+    const bw = cw - padX * 2;
+    const by = cy + Math.round(38 * k) + Math.round(46 * k);
+    const bh = (cy + ch - Math.round(26 * k)) - by;
+    const cxm = cx + cw / 2;
+
+    ctx.globalAlpha = a;
+    ctx.textAlign = 'center';
+    ctx.fillStyle = P.accent;
+    ctx.font = `700 ${Math.round(12 * k)}px ${fontFamily}`;
+    ctx.fillText(P.kicker, cxm, by + bh * 0.18);
+    ctx.globalAlpha = a * 0.5;
+    ctx.strokeStyle = P.accent;
+    ctx.beginPath();
+    ctx.moveTo(cxm - 26, by + bh * 0.18 + 14);
+    ctx.lineTo(cxm + 26, by + bh * 0.18 + 14);
+    ctx.stroke();
+    ctx.globalAlpha = a;
+
+    ctx.fillStyle = P.ink;
+    const tfs = Math.round(24 * k);
+    ctx.font = `700 ${tfs}px ${fontFamily}`;
+    const lines = wrapBalanced(ctx, script.title || 'AI 日记', bw * 0.94);
+    const lh = Math.round(tfs * 1.5);
+    const top = by + bh * 0.50;
+    lines.forEach((ln, i) => ctx.fillText(ln, cxm, top + i * lh));
+
+    ctx.globalAlpha = 1;
+    ctx.textAlign = 'left';
+    return true;
+  }
 
   ctx.fillStyle = `rgba(4,6,10,${(0.94 * a).toFixed(3)})`;
   ctx.fillRect(0, 0, W, H);
@@ -808,18 +1020,19 @@ export function drawTemplateIntro(ctx, tpl, { W, H, t, ep, script, fontFamily, w
   ctx.textAlign = 'center';
   ctx.fillStyle = P.accent;
   ctx.font = `700 ${Math.round(13 * k)}px ${fontFamily}`;
-  ctx.fillText(P.kicker, W / 2, y + 48);
+  const kickY = y + 48;
+  ctx.fillText(P.kicker, W / 2, kickY);
 
   // 细分隔线
   ctx.strokeStyle = P.accent;
   ctx.globalAlpha = a * 0.5;
-  ctx.beginPath(); ctx.moveTo(W / 2 - 26, y + 62); ctx.lineTo(W / 2 + 26, y + 62); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(W / 2 - 26, kickY + 14); ctx.lineTo(W / 2 + 26, kickY + 14); ctx.stroke();
   ctx.globalAlpha = a;
 
   ctx.fillStyle = P.ink;
   const tfs = Math.round(20 * k);
   ctx.font = `700 ${tfs}px ${fontFamily}`;
-  const lines = wrapBalanced(ctx, script.title || 'AI 日记', cardW * 0.76);
+  const lines = wrapBalanced(ctx, script.title || 'AI 日记', cardW * 0.78);
   const lh = Math.round(tfs * 1.55);
   const top = y + cardH * 0.40;
   lines.forEach((ln, i) => ctx.fillText(ln, W / 2, top + i * lh));

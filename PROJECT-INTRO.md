@@ -1,186 +1,125 @@
 # AI 日记工坊 · dsh-plugin-ai-diary
 
-> 给 **DeepSeek Harness（dsh）** 写的插件：把「AI 角色日记短剧」从选题、分镜、渲染、配音，一路做到**哔哩哔哩客户端真机投稿与回评**，不开浏览器、不点错按钮。
-> 画面由插件自带的本地渲染引擎确定性合成；需要外部算力时才调视频/配音接口，也可以完全走本机 ComfyUI 模型。
+在 DeepSeek Harness 里，把一个题材做成一条可以发布的短剧。
+
+给一句话，它写成剧本、分成镜头、逐帧画出画面、配上字幕与配音，最后在哔哩哔哩客户端里把稿子投出去。画面由本地引擎合成，同一份剧本每次出片都一致；配音、动态底板、生图、生视频这些需要外部算力的事，才去调对应接口。
 
 ---
 
-## 1. 它是干什么的
+## 1. 四件事
 
-一句话：**输入一个题材，产出一条 9:16 竖屏短剧 MP4，并能直接投到 B 站。**
+**写。** 内置题材库给出一句话的选题，编译成一份剧本 JSON：每镜说什么、停多久、余额怎么递减、字幕何时出现，都在里面。也可以自己手写一份，六行就够。
 
-它不是「调 API 生成视频」的封装，而是一条**闭环流水线**：
+**画。** 本地渲染引擎逐帧合成画面：背景缓慢推移、立绘呼吸浮动、字幕逐字打出、HUD 随剧情递减。七套版式各有各的纸面与配色，默认是一张米色纸页的对话卡。
 
-```
-题材库 → 剧本 JSON（镜数/时长/字幕/余额曲线）
-      → 本地渲染引擎出片（背景推移 + 立绘呼吸浮动 + HUD 递减 + 逐字字幕）
-      → 可选配音混流（小米 / 千问 / MiniMax 三家 TTS）
-      → 可选动态底板（静态图或视频 → 帧目录 plate）
-      → 客户端投稿 / 评论回复 / 素材选配（PowerShell + P/Invoke 桌面引擎）
-```
+**配。** 需要人声时，接小米 MiMo、千问 Qwen-TTS 或 MiniMax T2A；需要动态底板时，把静帧或短片转成帧目录，运行时按时间取帧；需要新立绘或新背景时，走本机 ComfyUI 或 Seedream。
 
-整条链路**不依赖任何生成额度**也能出片——这是它和"直接调文生视频"最本质的区别。
+**发。** 投稿走哔哩哔哩客户端本身：唤起窗口、进创作中心、点上传、粘路径、等上传、填封面标题声明分区标签、停在「立即投稿」前交给你。回评论走评论接口，失败时回退到界面操作。
 
 ---
 
-## 2. 能力一览
+## 2. 七套版式
 
-| 能力 | 实现方式 | 要不要额度 |
+| 模板 | 观感 | 适合 |
 |---|---|---|
-| 选题、编译剧本 | 内置题材库 + 确定性地编译成 JSON | 否 |
-| 成片渲染 | 自带引擎绘制（libx264 / 逐帧合成） | 否 |
-| 立绘换装 | 88 张透明 PNG，`--look v2…v19` 切档 | 否 |
-| 动态底板 | 静帧/视频 → 帧目录，运行时按时间取帧 | 否 |
-| 配音 | 小米 MiMo / 千问 Qwen-TTS / MiniMax T2A | 要 key |
-| 文生视频 | MiniMax H3 异步接口 | 要 key |
-| 本地出图 | 直连本机 ComfyUI（SD 1.5/SDXL 底模） | 否（本地算力） |
-| 客户端投稿 | 抬客户端 → 上传 → 填表 → 停在「立即投稿」前 | 否 |
-| 回评论 / 选素材 | 电网桌面引擎操作客户端 UI | 否 |
-| 联网自更新 | 查 GitHub Releases → 下载 → 校验 → 安装 | 否 |
+| `chat` | 米色纸页采访稿，网格、裁切标、竖排刊名与印章 | 默认；日常独白、对话体 |
+| `classic` | 暗色舞台，立绘居中，HUD 与余额条 | 情绪最重的一集 |
+| `report` | 评测报告卡，栏线分明 | 复盘、总结 |
+| `dossier` | 牛皮纸档案袋，编号与骑缝章 | 调查、揭秘 |
+| `terminal` | 深色终端，等宽字与光标 | 系统日志、故障 |
+| `audit` | 听证记录，双栏问答 | 对峙、审问 |
+| `specimen` | 标本记录，冷色玻璃与刻度 | 观察、实验 |
+
+默认输出 1920×1080 横屏；设置 `render.orientation = "portrait"` 回到 1080×1920 竖屏。立绘有 88 张姿势变体，`--look v2…v19` 逐档切换。
 
 ---
 
-## 3. 十七个工具
+## 3. 工具
 
-**创作链**
+**创作**
 
-- `ai_diary_topics` — 从题材库选题（默认避开做过的）
-- `ai_diary_plan` — 编译成可渲染剧本 JSON
-- `ai_diary_render` — 渲染 9:16 MP4，可配音、换立绘、换底板、只渲前 N 秒
-- `ai_diary_voice` — 三家 TTS 配音与混流
-- `ai_diary_assets` — 素材自检，缺什么、该按什么 prompt 补
-- `ai_diary_pick` — 按情绪挑立绘、按模板挑底板、给封面候选
+| 工具 | 用途 |
+|---|---|
+| `ai_diary_topics` | 从题材库选题，默认避开做过的 |
+| `ai_diary_plan` | 编译成可渲染的剧本 JSON |
+| `ai_diary_render` | 渲染成片，可换模板、立绘、底板，只渲前 N 秒 |
+| `ai_diary_voice` | 三家 TTS 配音并对齐混流 |
+| `ai_diary_assets` | 素材自检：缺哪张、该按什么提示词补 |
+| `ai_diary_pick` | 按情绪挑立绘、按模板挑底板、给封面候选 |
 
-**生成链**
+**生成**
 
-- `ai_diary_hailuo` — MiniMax H3 视频生成（异步，默认 dry-run）
-- `ai_diary_local` — 本机 ComfyUI 出图（探活 / 底模 / 六种风格 / 生成）
-- `ai_diary_motion` — 角色短片归档、列清单、转动态底板
+| 工具 | 用途 |
+|---|---|
+| `ai_diary_hailuo` | MiniMax H3 生成动态底板，异步任务，默认演练 |
+| `ai_diary_seedream` | 火山方舟 Seedream 出图，可带参考图锁角色 |
+| `ai_diary_local` | 本机 ComfyUI 出图，探活、列底模、六种风格 |
+| `ai_diary_motion` | 角色短片归档、列清单、转动态底板 |
 
-**发布链**
+**发布**
 
-- `ai_diary_publish` — 客户端或浏览器两套发布路径（默认 dry-run，不替你点发布）
-- `ai_diary_post` — 客户端真投稿编排，停在「立即投稿」前
-- `ai_diary_comments` — 打开评论管理，可预填回复（默认不发送）
+| 工具 | 用途 |
+|---|---|
+| `ai_diary_post` | 客户端真投稿编排，停在「立即投稿」前 |
+| `ai_diary_publish` | 轻量辅助：文案进剪贴板，带视频拉起客户端 |
+| `ai_diary_comments` | 评论回复，接口优先，界面兜底，默认不发送 |
 
-**桌面与运维**
+**运维**
 
-- `pc_see` / `pc_act` — 桌面观察（文本优先）与多步动作串
-- `ai_diary_update` — GitHub Releases 联网自更新
+| 工具 | 用途 |
+|---|---|
+| `ai_diary_settings` | 读写设置，`status` 一屏体检环境、账号、发布、内容、定时 |
+| `ai_diary_schedule` | 定时出片：启用、停用、改时间、立即跑一次 |
+| `ai_diary_update` | 查 GitHub Releases、下载、按 profile 安装 |
+| `pc_see` / `pc_act` | 桌面观察与多步操作，投稿与回评的底座 |
 
 ---
 
-## 4. 快速开始
+## 4. 开始
 
 ```powershell
-# 1. 安装
-dsh plugin --profile <你的profile> add .\dist\dsh-plugin-ai-diary-0.5.0.tgz
+dsh plugin --profile <你的profile> add "<包路径>\dist\dsh-plugin-ai-diary-1.0.0.tgz"
 
-# 2. 选题 → 剧本 → 出片（全程不消耗额度）
 node bin/ai-diary.mjs topics --count 3
 node bin/ai-diary.mjs plan --topic day7-balance
 node bin/ai-diary.mjs render --script out\day7-balance.json --out out\day7-balance.mp4
+```
 
-# 3. 想看构图先渲 8 秒
+先看构图，再渲整片：
+
+```powershell
 node bin/ai-diary.mjs render --script out\day7-balance.json --preview 8 --out out\preview.mp4
 ```
 
-配音（任选一家，配好 key 就行）：
+加人声：
 
 ```powershell
-$env:MIMO_API_KEY = "..."      # 小米 MiMo
-$env:DASHSCOPE_API_KEY = "..." # 千问
-$env:MINIMAX_API_KEY = "..."   # MiniMax
 node bin/ai-diary.mjs render --script out\day7-balance.json --voice 冰糖 --provider xiaomi
 ```
 
-本地模型出图（不联网、不耗额度）：
+---
 
-```powershell
-# 先起 ComfyUI（8188 端口），底模放 models\checkpoints
-node bin/ai-diary.mjs local --action probe
-node bin/ai-diary.mjs local --prompt "1girl, blue hair, maid, white background" --style anime --out out\local\a.png
-```
+## 5. 设置与定时
 
-联网自更新：
+面板里的设置写入 `~/.ai-diary/settings.json`；环境变量 `MIMO_API_KEY`、`DASHSCOPE_API_KEY`、`MINIMAX_API_KEY`、`ARK_API_KEY`、`GITHUB_TOKEN` 优先。
 
-```powershell
-node bin/ai-diary.mjs update                     # 查有没有新版
-node bin/ai-diary.mjs update --action apply --profile "<profile 根目录>"
-```
+定时任务默认关闭。打开后每天在指定时刻跑一次：出片、有 key 就配音、填充投稿表单，停在「立即投稿」前。`publish = true` 时才会真的提交，是否自动点最后一下由 `autoSubmit` 决定。
+
+B 站登录态：面板显示昵称、UID、Cookie 配置、剩余天数与预计到期日；每 6 小时自动验一次并顺延，7 天内转黄色提示，失效转红色。
 
 ---
 
-## 5. 素材体系
+## 6. 边界
 
-```
-assets/
-  backgrounds/          12 张 9:16 背景（听证室、标本室、档案室、星夜…）
-  characters/
-    transparent/        8 角色 × chibi/adult 原版立绘
-      variants/         88 张姿势变体（v2–v5、v10、v11、v16–v19；deepseek 另有 v6–v9、v12–v15）
-    motion/             6 条 Seedance 角色循环短片（5.06s / 720×720）
-  plates/               动态底板帧目录（每套 96 帧 / 8s / 12fps）
-```
-
-- 立绘全部抠透明、裁空边、缩到 1200px 高（总量 94.4MB）
-- 姿势变体生成时**锁身份只换动作**：发色、兽耳/角/尾/翼、瞳色、服装、饰品一律不动
-- 缺哪张，`ai_diary_assets` 会直接告诉你文件名与生成 prompt
+- 引擎能把整段视频转成动态底板，不能把视频里的透明角色单独抠出来叠到立绘位。
+- 角色短片是 1:1 的，转横屏底板会裁放放大，更适合当封面或片尾素材。
+- 投稿编排默认停在「立即投稿」前；评论默认只出计划不发送。
+- 客户端界面锚点写在 `config/bili.json`，客户端改版后改配置即可。
+- 本地模型只接 ComfyUI 的文生图标准节点；视频类本地节点尚未接入。
+- 三家 TTS 都需要自备 key；无 key 时只能离线自检。
 
 ---
 
-## 6. 架构
+## 7. 许可
 
-```
-bin/ai-diary.mjs      命令行入口（不装 dsh 也能单独跑）
-src/
-  index.mjs           插件入口：17 个工具注册 + Config 设置 schema + 技能注册
-  topics.mjs          题材库
-  script.mjs          剧本编译
-  engine.mjs          渲染引擎（canvas 逐帧合成 → ffmpeg 编码）
-  templates.mjs       7 套版面模板
-  plate.mjs           动态底板读取 / 构建
-  voice.mjs           三家 TTS
-  hailuo.mjs          MiniMax H3
-  local.mjs           本机 ComfyUI 客户端
-  motion.mjs          角色短片归档
-  update.mjs          GitHub Releases 自更新
-  bili.mjs / post    客户端投稿与评论（UI 锚点在 config/bili.json）
-  pc.mjs / pc-tools  桌面引擎（scripts/pc-engine.ps1 + PcNative.cs）
-skills/ai-diary/      给模型看的技能说明（工具怎么串）
-config/               客户端锚点、TTS、视频、更新源配置
-```
-
-设计取舍：**画面确定性优先**。同一份剧本每次渲染结果一致（除随机星点种子），方便迭代文案而不是每次赌模型发挥。
-
----
-
-## 7. 边界与已知限制
-
-- 引擎只能把**整段视频**转成动态底板，**不能把视频里的透明角色单独抠出来叠到立绘位**。
-- 角色短片是 1:1 的，转 9:16 底板会裁放放大，容易出现「两个自己」（实测），更适合当封面 / 片尾素材。
-- 投稿编排默认 `confirm:false`，**永远不会替你点「立即投稿」**；评论默认 `send:false`。
-- 客户端 UI 锚点写在 `config/bili.json`，B 站客户端改版后只改配置不改代码；创作声明下拉的锚点尚未真机验证。
-- 本地模型只接 ComfyUI 的 txt2img 标准图；视频类本地节点（SVD/AnimateDiff）尚未接入。
-- TTS 三家都需要自备 key；无 key 时只有离线自检。
-
----
-
-## 8.1 设置与定时（0.5.0 新增）
-
-- 设置面板：Harness 官方设置读插件导出的 `Config`（schemastery）；配置落 `~/.ai-diary/settings.json`，环境变量 `MIMO_API_KEY` / `DASHSCOPE_API_KEY` / `MINIMAX_API_KEY` / `GITHUB_TOKEN` 优先。
-- 定时：`ai_diary_schedule { action: "enable", daily_at: "20:30" }` 打开，一天只跑一次，到点自动出片 → 有 key 才配音 → 填好投稿表单停在「立即投稿」前；默认关闭。
-
-## 8. Roadmap
-
-- [ ] 本地视频节点（SVD / AnimateDiff）接入，绕开公网额度
-- [ ] 角色短片转 9:16 时改「贴合高度 + 补边」而不是裁放
-- [ ] 投稿编排补齐创作声明、封面、分区的真机锚点
-- [ ] 题材库扩充到 30 条以上
-- [ ] 一键打包脚本（ffmpeg 自动下载，免得仓库塞 100MB 二进制）
-
----
-
-## 9. 许可
-
-MIT。素材（立绘、背景、短片）为本项目自产，可随插件分发；第三方素材请自行确认授权。
+MIT。立绘、背景与短片为本项目自产，可随插件分发；第三方素材请自行确认授权。

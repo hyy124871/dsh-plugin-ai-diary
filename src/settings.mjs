@@ -90,6 +90,10 @@ export const DEFAULTS = {
   // 写台词用的文本模型：dashscope（千问）/ ark（豆包）/ off（只用本地拼装）
   // economy=true：只有「写台词」这一步调模型，同一批评论当天只问一次；抓评论、回评论、发布都不花 token
   text: { provider: 'dashscope', model: 'qwen-plus', economy: true },
+  // B 站登录态：扫码成功或手动验证后记一条，面板据此显示昵称/剩余天数/到期预警。
+  // expiresAt 是「最后一次验证成功 + 180 天」的估算（SESSDATA 服务端有效期网页端约半年），
+  // 每次保活成功都会顺延，等于把会话一直续着。
+  biliSession: { ok: false, uname: '', mid: 0, lastOkAt: null, expiresAt: null, checkedAt: null, failReason: '' },
 };
 
 function isPlain(v) {
