@@ -22,6 +22,7 @@ $script:shotWidth = 1024
 $script:maxActions = 24
 $script:stopFile = Join-Path $env:LOCALAPPDATA 'dsh-pc-control\STOP'
 $script:expected = [long]0
+$script:includeHidden = $false
 
 function Write-Result {
   $payload = [ordered]@{
@@ -76,9 +77,11 @@ function Get-ActiveTitle { return [PcNative]::TitleOf([PcNative]::Foreground()) 
 
 function Get-WindowRows {
   $rows = @()
-  foreach ($line in [PcNative]::Windows()) {
+  foreach ($line in [PcNative]::Windows([bool]$script:includeHidden)) {
     $f = $line -split "`t"
     if ($f.Count -lt 8) { continue }
+    $vis = $true
+    if ($f.Count -ge 9) { $vis = ($f[8] -eq '1') }
     $rows += [pscustomobject]@{
       hwnd  = [long]$f[0]
       pid   = [int]$f[1]
@@ -88,9 +91,18 @@ function Get-WindowRows {
       w     = [int]$f[5]
       h     = [int]$f[6]
       title = [string]$f[7]
+      vis   = [bool]$vis
     }
   }
   return $rows
+}
+
+function Get-TitleFragments([string]$w) {
+  # A window spec may carry several alternatives separated by '|' ("哔哩哔哩|bilibili"),
+  # so one config works across client builds whose titles differ.
+  $parts = @($w -split '\|' | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+  if ($parts.Count -eq 0) { $parts = @($w) }
+  return $parts
 }
 
 function Resolve-Target([string]$window) {
@@ -99,26 +111,38 @@ function Resolve-Target([string]$window) {
   if (-not $w -or $w -eq 'active') {
     $h = [PcNative]::Foreground()
     $r = [PcNative]::Rect($h)
-    return [pscustomobject]@{ hwnd = [long][PcNative]::Ptr($h); title = [PcNative]::TitleOf($h); rect = $r; min = $false }
+    return [pscustomobject]@{ hwnd = [long][PcNative]::Ptr($h); title = [PcNative]::TitleOf($h); rect = $r; min = $false; vis = $true }
   }
   $rows = @(Get-WindowRows)
-  $exact = @($rows | Where-Object { $_.title -eq $w })
+  $frags = @(Get-TitleFragments $w)
+  $lowers = @($frags | ForEach-Object { $_.ToLower() })
+  $exact = @($rows | Where-Object { $lowers -contains $_.title.ToLower() })
   if ($exact.Count -ge 1) { $pick = $exact[0] }
   else {
-    $lower = $w.ToLower()
-    $fuzzy = @($rows | Where-Object { $_.title.ToLower().Contains($lower) })
+    $fuzzy = @($rows | Where-Object {
+      $t = $_.title.ToLower()
+      $hit = $false
+      foreach ($f in $lowers) { if ($t.Contains($f)) { $hit = $true } }
+      $hit
+    })
     if ($fuzzy.Count -eq 1) { $pick = $fuzzy[0] }
     elseif ($fuzzy.Count -gt 1) {
-      $names = ($fuzzy | Select-Object -First 3 | ForEach-Object { $_.title }) -join ' | '
-      throw ('AMBIGUOUS_WINDOW: title matches ' + $fuzzy.Count + ' windows: ' + $names)
+      # Several windows contain the fragment (a client often has both a main window and a
+      # "xxx-浏览器窗口"): prefer visible, then the shortest title, which is the container.
+      $pick = @($fuzzy | Sort-Object @{ Expression = { if ($_.vis) { 0 } else { 1 } } }, @{ Expression = { $_.title.Length } })[0]
     }
-    else { throw ('NO_WINDOW: nothing matches "' + $w + '"') }
+    else {
+      $sample = ($rows | Select-Object -First 6 | ForEach-Object { $_.title }) -join ' | '
+      $hint = if ($script:includeHidden) { '' } else { ' (tray/hidden windows not listed; pass includeHidden)' }
+      throw ('NO_WINDOW: nothing matches "' + $w + '" among ' + $rows.Count + ' windows' + $hint + ': ' + $sample)
+    }
   }
   return [pscustomobject]@{
     hwnd  = [long]$pick.hwnd
     title = [string]$pick.title
     rect  = @([int]$pick.x, [int]$pick.y, [int]$pick.w, [int]$pick.h)
     min   = [bool]$pick.min
+    vis   = [bool]$pick.vis
   }
 }
 
@@ -513,8 +537,14 @@ function Do-See {
       $max = if ($limit -gt 0) { $limit } else { 40 }
       $rows = @(Get-WindowRows)
       if ($window) {
-        $lower = $window.Trim().ToLower()
-        $rows = @($rows | Where-Object { $_.title.ToLower().Contains($lower) })
+        $frags = @(Get-TitleFragments $window.Trim())
+        $lowers = @($frags | ForEach-Object { $_.ToLower() })
+        $rows = @($rows | Where-Object {
+          $t = $_.title.ToLower()
+          $hit = $false
+          foreach ($f in $lowers) { if ($t.Contains($f)) { $hit = $true } }
+          $hit
+        })
       }
       $dupes = @($rows | Group-Object title | Where-Object { $_.Count -gt 1 } | ForEach-Object { $_.Name })
       $out = @()
@@ -525,6 +555,7 @@ function Do-See {
         $line = $i.ToString() + ' "' + $r.title + '" ' + $r.w + 'x' + $r.h
         if ($dupes -contains $r.title) { $line += ' p' + $r.pid }
         if ($r.min) { $line += ' (min)' }
+        if (-not $r.vis) { $line += ' (hidden)' }
         $out += $line
       }
       $script:lines = $out
@@ -555,7 +586,17 @@ function Do-See {
     }
     'shot' {
       $t = Resolve-Target $window
-      if ($t.min) { throw ('WINDOW_MINIMIZED: "' + $t.title + '" is minimized; restore it first') }
+      # Tray / hidden / minimized: bring the window back first, then re-read its geometry
+      # (the rect of a hidden window is stale or zero, so capturing it would fail).
+      if ($t.min -or (-not $t.vis)) {
+        [void][PcNative]::Activate([IntPtr]::new([long]$t.hwnd))
+        Start-Sleep -Milliseconds 1200
+        $t = Resolve-Target $t.title
+        if ($t.min) {
+          [void][PcNative]::Activate([IntPtr]::new([long]$t.hwnd))
+          Start-Sleep -Milliseconds 600
+        }
+      }
       $outPath = [string]$req.out
       if (-not $outPath) { throw 'BAD_ARGS: shot needs an output path' }
       $targetWidth = if ($width -gt 0) { $width } else { $script:shotWidth }
@@ -591,6 +632,7 @@ try {
     if ($null -ne $req.options.shotWidth) { $script:shotWidth = [int]$req.options.shotWidth }
     if ($null -ne $req.options.maxActions) { $script:maxActions = [int]$req.options.maxActions }
   }
+  if ($null -ne $req.includeHidden) { $script:includeHidden = [bool]$req.includeHidden }
 
   Add-Type -AssemblyName System.Drawing
   Initialize-Native

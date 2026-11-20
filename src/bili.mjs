@@ -16,8 +16,9 @@ export function loadBiliConfig(root) {
   const defaults = {
     client: {
       exe: process.env.DIARY_BILI_CLIENT || 'C:\\Program Files\\bilibili\\哔哩哔哩.exe',
-      mainWindow: '哔哩哔哩',
-      creatorWindow: '浏览器窗口',
+      // 用 | 分隔多个候选，客户端换版本改标题也不会失配（引擎按片段模糊匹配）
+      mainWindow: '哔哩哔哩|bilibili|Bilibili',
+      creatorWindow: '浏览器窗口|创作中心|投稿管理',
       railUploadIcon: [0.032, 0.757],
     },
     creator: {
@@ -55,31 +56,96 @@ function engineOpts(cfg) {
   return { timeoutMs: 45000, maxActions: 24, failsafe: Boolean(cfg.failsafe), allowWinKeys: false };
 }
 
-async function seeWindows(cfg) {
+function fragsOf(spec) {
+  return String(spec || '').split('|').map((s) => s.trim()).filter(Boolean);
+}
+
+function lineHas(line, spec) {
+  const t = String(line).toLowerCase();
+  return fragsOf(spec).some((f) => t.includes(f.toLowerCase()));
+}
+
+export function parseWindowLine(line) {
+  const m = /^(\d+)\s+"(.+)"\s+(\d+)x(\d+)(?:\s+p(\d+))?(\s+\(min\))?(\s+\(hidden\))?$/.exec(String(line).trim());
+  if (!m) return null;
+  return {
+    no: Number(m[1]),
+    title: m[2],
+    w: Number(m[3]),
+    h: Number(m[4]),
+    pid: m[5] ? Number(m[5]) : 0,
+    min: Boolean(m[6]),
+    hidden: Boolean(m[7]),
+  };
+}
+
+async function seeWindows(cfg, includeHidden = false) {
   const opts = engineOpts(cfg);
-  const r = await runEngine({ op: 'see', what: 'windows', options: opts }, opts);
+  const r = await runEngine({ op: 'see', what: 'windows', includeHidden, options: opts }, opts);
   if (!r.ok) throw new Error('列窗口失败：' + (r.error || 'unknown'));
   return r.lines || [];
 }
 
-// 客户端进程名是中文（哔哩哔哩.exe），tasklist 过滤不可靠；直接看窗口列表判断
+// 主窗口：优先可见、标题最短的那条（"哔哩哔哩" 比 "哔哩哔哩-浏览器窗口" 短）
+function pickClientRow(rows, cfg) {
+  const mainHits = rows.filter((r) => lineHas(r.title, cfg.client.mainWindow));
+  const notCreator = mainHits.filter((r) => !lineHas(r.title, cfg.client.creatorWindow));
+  const pool = notCreator.length ? notCreator : mainHits;
+  if (!pool.length) return null;
+  const shown = pool.filter((r) => !r.hidden && !r.min);
+  return (shown.length ? shown : pool).slice().sort((a, b) => a.title.length - b.title.length)[0];
+}
+
+// 客户端缩在托盘时，focus 会把隐藏窗口 ShowWindow 唤回来（引擎侧 Activate 已处理）
+async function wakeClient(cfg, title) {
+  try {
+    await act(cfg, [`focus ${title}`, 'wait 1']);
+  } catch {
+    /* 唤不出来就交给后面的截图报真实原因 */
+  }
+  await sleep(800);
+}
+
+async function waitForClient(cfg, timeoutMs) {
+  const deadline = Date.now() + Math.max(15000, Number(timeoutMs) || cfg.waits.afterLaunchMs || 15000);
+  while (Date.now() < deadline) {
+    const rows = (await seeWindows(cfg, true)).map(parseWindowLine).filter(Boolean);
+    const row = pickClientRow(rows, cfg);
+    if (row) {
+      if (row.hidden || row.min) await wakeClient(cfg, row.title);
+      return row;
+    }
+    await sleep(2500);
+  }
+  return null;
+}
+
 export async function clientRunning(cfg) {
   try {
-    const lines = await seeWindows(cfg);
-    return lines.some((l) => l.includes(cfg.client.mainWindow));
+    const rows = (await seeWindows(cfg, true)).map(parseWindowLine).filter(Boolean);
+    return Boolean(pickClientRow(rows, cfg));
   } catch {
     return false;
   }
 }
 
 export async function ensureClient(cfg) {
-  if (await clientRunning(cfg)) return { launched: false };
+  const rows = (await seeWindows(cfg, true)).map(parseWindowLine).filter(Boolean);
+  const cur = pickClientRow(rows, cfg);
+  if (cur) {
+    if (cur.hidden || cur.min) await wakeClient(cfg, cur.title);
+    return { launched: false, woken: Boolean(cur.hidden || cur.min), title: cur.title };
+  }
   if (!cfg.client.exe || !fs.existsSync(cfg.client.exe)) {
     throw new Error('找不到哔哩哔哩客户端：' + cfg.client.exe + '（用 DIARY_BILI_CLIENT 指定路径）');
   }
   spawn(cfg.client.exe, [], { detached: true, stdio: 'ignore' }).unref();
-  await sleep(cfg.waits.afterLaunchMs);
-  return { launched: true };
+  const w = await waitForClient(cfg, cfg.waits.windowWaitMs);
+  if (!w) {
+    const sec = Math.round(Math.max(15000, Number(cfg.waits.windowWaitMs) || cfg.waits.afterLaunchMs || 15000) / 1000);
+    throw new Error('客户端已启动，但 ' + sec + ' 秒内没出现「' + cfg.client.mainWindow + '」窗口（可能停在托盘或登录页），把客户端窗口点开后重试');
+  }
+  return { launched: true, woken: Boolean(w.hidden || w.min), title: w.title };
 }
 
 async function shot(cfg, windowName) {
@@ -90,14 +156,14 @@ async function shot(cfg, windowName) {
     /* focus 失败时仍尝试截图，让引擎给出真实原因 */
   }
   const out = path.join(shotsDir(), `bili-${Date.now()}.png`);
-  const r = await runEngine({ op: 'see', what: 'shot', window: windowName, width: 1280, out, options: engineOpts(cfg) }, engineOpts(cfg));
+  const r = await runEngine({ op: 'see', what: 'shot', window: windowName, width: 1280, out, includeHidden: true, options: engineOpts(cfg) }, engineOpts(cfg));
   if (!r.ok) throw new Error('截图失败：' + (r.error || 'unknown'));
   if (!r.image) throw new Error('截图失败：引擎没有返回图片');
   return r.image;
 }
 
 async function act(cfg, actions, dryRun = false) {
-  return runEngine({ op: 'act', actions, dryRun, options: engineOpts(cfg) }, engineOpts(cfg));
+  return runEngine({ op: 'act', actions, dryRun, includeHidden: true, options: engineOpts(cfg) }, engineOpts(cfg));
 }
 
 // 截图比例 → 真实屏幕坐标
@@ -110,8 +176,8 @@ function realPoint(image, [fx, fy]) {
 }
 
 export async function openCreator(cfg) {
-  const before = await seeWindows(cfg);
-  if (before.some((l) => l.includes(cfg.client.creatorWindow))) {
+  const before = await seeWindows(cfg, true);
+  if (before.some((l) => lineHas(l, cfg.client.creatorWindow))) {
     return { opened: false, window: cfg.client.creatorWindow };
   }
   const main = await shot(cfg, cfg.client.mainWindow);
@@ -119,9 +185,9 @@ export async function openCreator(cfg) {
   const r = await act(cfg, [`focus ${cfg.client.mainWindow}`, `click ${x} ${y}`, 'wait 2']);
   if (!r.ok) throw new Error('点投稿入口失败：' + r.error);
   await sleep(cfg.waits.afterCreatorOpenMs);
-  const after = await seeWindows(cfg);
-  if (!after.some((l) => l.includes(cfg.client.creatorWindow))) {
-    throw new Error('点了投稿入口，但没有出现「' + cfg.client.creatorWindow + '」窗口');
+  const after = await seeWindows(cfg, true);
+  if (!after.some((l) => lineHas(l, cfg.client.creatorWindow))) {
+    throw new Error('点了投稿入口，但没有出现「' + cfg.client.creatorWindow + '」窗口（现有窗口：' + after.slice(0, 6).join(' | ') + '）');
   }
   return { opened: true, window: cfg.client.creatorWindow };
 }

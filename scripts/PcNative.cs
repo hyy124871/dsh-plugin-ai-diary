@@ -224,13 +224,18 @@ public static class PcNative
 
     public static long Ptr(IntPtr h) { return h.ToInt64(); }
 
-    // One line per visible top-level window: hwnd \t pid \t min \t x \t y \t w \t h \t title
-    public static string[] Windows()
+    // One line per top-level window: hwnd \t pid \t min \t x \t y \t w \t h \t title \t visible
+    // includeHidden also lists hidden / tray windows: an Electron client that was closed to the
+    // notification area keeps its window and title, it is just not visible.
+    public static string[] Windows() { return Windows(false); }
+
+    public static string[] Windows(bool includeHidden)
     {
         List<string> lines = new List<string>();
         EnumWindows((h, l) =>
         {
-            if (!IsWindowVisible(h)) return true;
+            bool vis = IsWindowVisible(h);
+            if (!vis && !includeHidden) return true;
             if (GetWindowTextLength(h) <= 0) return true;
             StringBuilder cls = new StringBuilder(256);
             GetClassName(h, cls, cls.Capacity);
@@ -238,8 +243,8 @@ public static class PcNative
             uint pid; GetWindowThreadProcessId(h, out pid);
             RECT r; GetWindowRect(h, out r);
             string title = TitleOf(h);
-            lines.Add(string.Format("{0}\t{1}\t{2}\t{3}\t{4}\t{5}\t{6}\t{7}",
-                h.ToInt64(), pid, IsIconic(h) ? 1 : 0, r.Left, r.Top, r.Right - r.Left, r.Bottom - r.Top, title));
+            lines.Add(string.Format("{0}\t{1}\t{2}\t{3}\t{4}\t{5}\t{6}\t{7}\t{8}",
+                h.ToInt64(), pid, IsIconic(h) ? 1 : 0, r.Left, r.Top, r.Right - r.Left, r.Bottom - r.Top, title, vis ? 1 : 0));
             return true;
         }, IntPtr.Zero);
         return lines.ToArray();
@@ -250,6 +255,7 @@ public static class PcNative
         if (h == IntPtr.Zero) return false;
         try
         {
+            if (!IsWindowVisible(h)) ShowWindow(h, 5); // SW_SHOW: bring a tray/hidden window back
             if (IsIconic(h)) ShowWindow(h, 9); // SW_RESTORE
             uint fgPid = 0;
             uint targetPid = 0;
