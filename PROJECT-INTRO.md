@@ -138,7 +138,7 @@ src/
   topics.mjs          题材库
   script.mjs          剧本编译
   engine.mjs          渲染引擎（canvas 逐帧合成 → ffmpeg 编码）
-  templates.mjs       6 套版面模板
+  templates.mjs       7 套版面模板
   plate.mjs           动态底板读取 / 构建
   voice.mjs           三家 TTS
   hailuo.mjs          MiniMax H3

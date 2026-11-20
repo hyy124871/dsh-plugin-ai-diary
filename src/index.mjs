@@ -409,7 +409,7 @@ function planTool() {
     parameters: {
       topic_id: { type: 'string', description: '题材 id（ai_diary_topics 返回的 id）；省略则自动选新题材' },
       character: { type: 'string', description: '换主角，生成该角色的变体篇' },
-      template: { type: 'string', enum: ['classic', 'report', 'dossier', 'terminal', 'audit', 'specimen'], description: '版面模板：classic=星夜日记（原版），report=评测报告（米色网格卡+章节标签+REC HUD），dossier=机密档案（牛皮纸卷宗+红色機密章），terminal=数据终端（冷青 CRT 扫描线），audit=听证记录（墨绿硬卡+条文记录+已覆核章），specimen=标本观察（冷白观察板+刻度尺+情绪指数条）' },
+      template: { type: 'string', enum: ['chat', 'classic', 'report', 'dossier', 'terminal', 'audit', 'specimen'], description: '版面模板：chat=对话卡（主推：左侧大纸卡逐字台词+右下人物+暖棕背景），classic=星夜日记（原版），report=评测报告（米色网格卡+章节标签+REC HUD），dossier=机密档案（牛皮纸卷宗+红色機密章），terminal=数据终端（冷青 CRT 扫描线），audit=听证记录（墨绿硬卡+条文记录+已覆核章），specimen=标本观察（冷白观察板+刻度尺+情绪指数条）' },
       out: { type: 'string', description: '剧本输出路径，默认 out/<id>.json；相对路径按会话工作目录解析' },
       width: { type: 'number', description: '输出宽，默认 720' },
       height: { type: 'number', description: '输出高，默认 1280' },
@@ -456,7 +456,7 @@ function renderTool() {
       out: { type: 'string', description: '输出 mp4 路径，默认 out/<id>.mp4' },
       png: { type: 'boolean', description: '改为导出 PNG 帧序列' },
       preview_seconds: { type: 'number', description: '只渲染前 N 秒（快速预览构图，默认整片）' },
-      template: { type: 'string', enum: ['classic', 'report', 'dossier', 'terminal', 'audit', 'specimen'], description: '覆盖剧本里的版面模板' },
+      template: { type: 'string', enum: ['chat', 'classic', 'report', 'dossier', 'terminal', 'audit', 'specimen'], description: '覆盖剧本里的版面模板（chat=对话卡主推，其余为风格皮肤）' },
       look: { type: 'string', description: '立绘模样：v1=原版，v2=居家套装，v3=外出套装，v4/v5=动作姿势，v6=水手服通勤，v7=冬日居家，v8=运动，v9=夏日祭（deepseek 独有）；也可传 variants 目录里任意后缀，缺图自动回退原版' },
       voice: { type: 'string', description: '顺手配音并混流：传音色名（如 冰糖 / Cherry / female-shaonv）或 design；provider 省略走 config/voice.json' },
       provider: { type: 'string', enum: ['xiaomi', 'qwen', 'minimax'], description: '配音服务商：xiaomi=小米 MiMo，qwen=千问 Qwen-TTS，minimax=MiniMax T2A' },
@@ -755,7 +755,7 @@ function pickTool() {
     parameters: {
       character: { type: 'string', description: '角色 id，默认 deepseek' },
       mood: { type: 'string', enum: ['calm', 'panic', 'relief', 'excited'], description: '情绪，默认 calm' },
-      template: { type: 'string', description: '模板 id：classic/report/dossier/terminal/audit/specimen' },
+      template: { type: 'string', description: '模板 id：chat/classic/report/dossier/terminal/audit/specimen' },
       style: { type: 'string', enum: ['chibi', 'adult'], description: '立绘风格，默认 chibi' },
       cover: { type: 'boolean', description: '是否一起给封面候选，默认 true' },
     },
@@ -763,8 +763,8 @@ function pickTool() {
     isConcurrencySafe: () => true,
     async execute(args) {
       const p = await import('./pick.mjs');
-      const chosen = p.pickMaterials({ root: ROOT, character: args.character || 'deepseek', template: args.template || 'classic', mood: args.mood || 'calm', style: args.style || 'chibi' });
-      const covers = args.cover === false ? [] : p.pickCover(ROOT, args.template || 'classic');
+      const chosen = p.pickMaterials({ root: ROOT, character: args.character || 'deepseek', template: args.template || 'chat', mood: args.mood || 'calm', style: args.style || 'chibi' });
+      const covers = args.cover === false ? [] : p.pickCover(ROOT, args.template || 'chat');
       return out(
         `${chosen.character} → look ${chosen.look}｜底板 ${chosen.plate || '无（用静态 ' + chosen.background + '）'}`,
         { ok: true, ...chosen, covers: covers.slice(0, 5) },

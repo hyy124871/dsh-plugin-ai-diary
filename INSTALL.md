@@ -100,7 +100,7 @@ cd "C:\Users\黄奕阳\DoubaoWork\chats\2026-11-13\new-chat-1\dsh-plugin-ai-diar
 
 node load-test.mjs                 # 应打印 ALL 12 TOOLS OK：topics/plan/render/voice/assets/hailuo/publish/pick/post/comments/pc_see/pc_act
 node bin/ai-diary.mjs topics --count 3      # 题材库可读
-node bin/ai-diary.mjs template              # 6 套模板
+node bin/ai-diary.mjs template              # 7 套模板（默认 chat 对话卡）
 node bin/ai-diary.mjs plates                # 6 套动态底板
 node bin/ai-diary.mjs plan --all            # 13 条剧本一次性编译（约 1 秒）
 node bin/ai-diary.mjs render --preview 7 --script out\day23-audit.json --out out\test.mp4

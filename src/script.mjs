@@ -28,7 +28,7 @@ export function buildScript(topic, opts = {}) {
       balance: Number(topic.balance ?? 1),
       character: topic.character || 'deepseek',
       style: topic.style || 'chibi',
-      template: topic.template || opts.template || 'classic',
+      template: topic.template || opts.template || 'chat',
       background: topic.background || null,
       arc: topic.arc || '低垂',
     },

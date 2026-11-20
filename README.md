@@ -4,6 +4,24 @@
 
 > **不知道怎么用？先看 [使用说明](docs/USAGE.md)**：安装升级、七把 key 怎么配、怎么做一集、发布与回评论、定时、常见问题。下面这份是版本变更记录。
 
+## v1.0.0 正式版：对话卡模板，默认换脸
+
+这一版起**默认模板是 `chat`（对话卡）**，也是对外上线版。版式按 B 站「人類評測報告」那类横屏节目做的：
+
+- **左侧米色网格大卡**：左上角「AI 日記」+ 胶囊「Homo sapiens v1.0」；卡内「本期主持」→ 中文名（深墨色）/ 英文名（赤陶橙）双色排；下面是这一集最近几镜的对话记录，逐字打出，历史几行淡、当前一行深，多了从底部截断。
+- **右下角人物立绘**，脚边一块 `評測員 · 小鲸` 铭牌；左下 `REC ● 21:47 / 評測員訪談 · No.007`。
+- **背景 `ember-room.png`**：暗红棕渐变 + 左上暖光 + 径向暗角 + 细颗粒，脚本 `work/make-ember.mjs` 可复现。
+- **底部只留本集标题大字**（带暗底衬 + 阴影），不再压逐句字幕；聊天内容全在卡里。
+- 中文名映射：deepseek 小鲸 / gpt 小G / gemini 小玖 / claude 小克 / grok 小格 / glm 小智 / qwen 小千 / kimi 小月。
+
+模板数 **6 → 7**。同时修掉横屏化留下的排版债：
+
+- `report` / `dossier` / `terminal` / `audit` / `specimen` 五套纸卡的**行距与卡高没跟着字号放大**，横屏下字溢出卡片 —— 这一段几何全部按 `k = W>=H ? 1.15 : 1` 重排，竖屏仍是原像素。
+- 片头卡提前 `return` 时 `globalAlpha` 泄漏，导致纸卡半透明；现每帧开头重置 `globalAlpha` / `textAlign` / `textBaseline`。
+- 暗角与情绪光挪到纸卡之前、只对 `classic` 生效，不再把纸卡二次压暗；字幕底衬 `bandTopR` 调 0.80，不压卡底。
+- 片头标题行距按字号走（`lh = tfs*1.55`），不再重叠。
+- `parallel` 上报尺寸改用 `resolveSize`，横屏不再谎报 1080×1920。
+
 ## v1.0.0-preview：能测 key 了，剧本也能自己写
 
 ### 〇、默认改成 16:9 横屏
@@ -445,7 +463,7 @@ AI 日记工坊 0.8.0 · 体检
 [环境]  Node 22 / ffmpeg / 画布库 / 设置文件可写
 [账号]  B 站登录态：SESSDATA+bili_jct 齐不齐、有没有 buvid3
 [发布]  客户端路径在不在
-[内容]  6 套模板 / 7 套底板 / 16 张立绘 + 88 张变体 / 6 段角色短片 / 13 条题材
+[内容]  7 套模板 / 7 套底板 / 16 张立绘 + 88 张变体 / 6 段角色短片 / 13 条题材
 [定时]  开没开、上次跑成什么样
 [下一步] 一条条给出该跑哪个命令
 ```
@@ -668,10 +686,11 @@ node bin/ai-diary.mjs video --prompt "听证室缓慢前推，尘埃浮动" --fr
 - 轮询 `GET /v2/query/video_generation/{task_id}`，`task.status` 到 `succeeded` 后直接拿 `task.content.url` 下载
 - 拿到 mp4 后 `plate --from out/h3-xxx.mp4 --name audit --seconds 8` 转成底板
 
-## 六套模板（版面皮肤）
+## 七套模板（版面皮肤）
 
 | id | 版面 | 专属底板 |
 |---|---|---|
+| `chat` | **对话卡（默认主推）**：左侧米色网格大卡（本期主持 + 中英双色名字 + 最近几镜台词逐字打字）+ 右下立绘 + 脚边「評測員」铭牌 + 左下 REC 行 + 底部本集标题大字 + 左上「AI 日記 / Homo sapiens v1.0」胶囊 + 暗红棕暖光背景 | `ember-room.png` |
 | `classic` | 星夜日记（原版）：星空底、居中立绘、顶部 DAY/余额 HUD | `night-sky.png` |
 | `report` | 评测报告：米色网格报告卡 + 右上「01 基本資訊」章节标签 + 左下 `REC SUBJECT` HUD + 右侧立绘（对齐 B 站《倒反天罡，Claude 评测人类》那套报告卡视觉） | `report-desk.png` |
 | `dossier` | 机密档案：牛皮纸卷宗 + 档案 tab + 红色「機密」印章 + 竖排档案号 | `dossier-room.png` |
@@ -689,7 +708,7 @@ node bin/ai-diary.mjs plan --all                            # 全题材一次性
 node bin/ai-diary.mjs render --script out/x.json --template terminal
 ```
 
-`report`/`dossier`/`terminal`/`audit`/`specimen` 会自动接管底板，题材里写死的旧 `background`（night/warm/…）不会把它压回星空。
+`chat`/`report`/`dossier`/`terminal`/`audit`/`specimen` 会自动接管底板，题材里写死的旧 `background`（night/warm/…）不会把它压回星空。
 
 ## 动态底板（背景层也能动）
 

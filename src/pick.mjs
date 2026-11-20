@@ -17,6 +17,7 @@ const MOOD_LOOKS = {
 
 // 题材模板 → 底板名（没有底板就退回静态背景）
 const TEMPLATE_PLATES = {
+  chat: [],
   classic: ['platform', 'night'],
   report: ['report'],
   dossier: ['dossier'],
@@ -26,6 +27,7 @@ const TEMPLATE_PLATES = {
 };
 
 const TEMPLATE_BG = {
+  chat: 'ember-room.png',
   classic: 'night-sky.png',
   report: 'report-desk.png',
   dossier: 'dossier-room.png',
@@ -64,7 +66,7 @@ export function listBackgrounds(root) {
 /**
  * @param {{root:string, character?:string, template?:string, mood?:string, style?:string}} input
  */
-export function pickMaterials({ root, character = 'deepseek', template = 'classic', mood = 'calm', style = 'chibi' } = {}) {
+export function pickMaterials({ root, character = 'deepseek', template = 'chat', mood = 'calm', style = 'chibi' } = {}) {
   const looks = listLooks(root, character).filter((l) => l.style === style);
   const plates = listPlates(root);
   const backgrounds = listBackgrounds(root);
@@ -102,7 +104,7 @@ export function pickMaterials({ root, character = 'deepseek', template = 'classi
 }
 
 /** 封面候选：优先找已渲染的抽帧图，其次用该模板的静态底图 */
-export function pickCover(root, template = 'classic', outDir = 'out/check') {
+export function pickCover(root, template = 'chat', outDir = 'out/check') {
   const candidates = [];
   const dir = path.join(root, outDir);
   if (fs.existsSync(dir)) {

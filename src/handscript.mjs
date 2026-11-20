@@ -117,7 +117,7 @@ export function parseDraft(text) {
       balance: Number(meta.balance ?? 1),
       character: meta.character || 'deepseek',
       style: meta.style || 'chibi',
-      template: meta.template || 'classic',
+      template: meta.template || 'chat',
       background: meta.background || null,
       arc: '低垂',
     },

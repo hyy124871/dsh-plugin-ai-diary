@@ -138,9 +138,10 @@ export function assetPaths(episode, script = {}, opts = {}) {
     audit: 'backgrounds/audit-room.png',
     specimen: 'backgrounds/specimen-lab.png',
     platform: 'backgrounds/train-platform.png',
+    ember: 'backgrounds/ember-room.png',
   };
   // 模板族优先用专属底板：旧题材里写死的 night/warm 等槽位不再压模板
-  const tplDef = getTemplate(episode.template || 'classic');
+  const tplDef = getTemplate(episode.template || 'chat');
   const legacyBg = ['night', 'warm', 'rain', 'dusk', 'sakura', 'blank'];
   const chosenBg = (tplDef.id !== 'classic' && (!episode.background || legacyBg.includes(episode.background)))
     ? tplDef.bg
@@ -277,7 +278,7 @@ export async function renderEpisode(script, opts = {}) {
   const noise = makeNoise(96, 96);
   const stars = makeStars(W, H, 80);
   const dust = makeDust(W, H);
-  const tpl = getTemplate(ep.template || opts.template || script.template || 'classic');
+  const tpl = getTemplate(ep.template || opts.template || script.template || 'chat');
   // 版面自适应系数：竖屏 720 宽 = 1（与 0.9.x 逐像素一致），横屏 1280 宽 = 1.78
   const UIK = W / 720;
 
@@ -315,6 +316,11 @@ export async function renderEpisode(script, opts = {}) {
     const t = i / FPS;
     const prog = t / total;
 
+    // 每帧重置绘图状态：canvas 是复用的，上一帧片头/片尾残留的 globalAlpha 会污染整帧
+    ctx.globalAlpha = 1;
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'alphabetic';
+
     // 当前镜与「已显示字数 → 余额」进度（模板卡与 HUD 都要用）
     const cur = tl.find(b => t >= b.start && t < b.end) || tl[tl.length - 1] || { mood: 'low', text: '', start: 0, dur: 1, index: 0 };
     const shownChars = (() => {
@@ -326,7 +332,7 @@ export async function renderEpisode(script, opts = {}) {
     const remain = Math.max(0, balance * (1 - spentRatio * 0.97));
 
     // 1) 背景（动态底板优先；没有就静态底图缓推）
-    ctx.fillStyle = '#050B16';
+    ctx.fillStyle = tpl.bg === 'ember' ? '#1A0B07' : '#050B16';
     ctx.fillRect(0, 0, W, H);
     if (plateReader) {
       const img = await plateReader.at(t);
@@ -335,8 +341,21 @@ export async function renderEpisode(script, opts = {}) {
     } else if (bgImg) coverDraw(ctx, bgImg, W, H, 1.02 + 0.05 * prog, 0, -6 * prog);
     else {
       const g = ctx.createLinearGradient(0, 0, 0, H);
-      g.addColorStop(0, '#071426'); g.addColorStop(0.55, '#0B1A2E'); g.addColorStop(1, '#050B16');
+      if (tpl.bg === 'ember') {
+        // 暗红棕暖雾：对应 chat 模板的参考背景
+        g.addColorStop(0, '#3B1B14'); g.addColorStop(0.55, '#24120C'); g.addColorStop(1, '#0E0705');
+      } else {
+        g.addColorStop(0, '#071426'); g.addColorStop(0.55, '#0B1A2E'); g.addColorStop(1, '#050B16');
+      }
       ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+      if (tpl.bg === 'ember') {
+        // 左上暖光斑（参考图的壁灯/窗光）
+        const wg = ctx.createRadialGradient(W * 0.20, -H * 0.12, 0, W * 0.20, -H * 0.12, W * 0.95);
+        wg.addColorStop(0, 'rgba(255,160,96,0.26)');
+        wg.addColorStop(0.5, 'rgba(255,126,74,0.10)');
+        wg.addColorStop(1, 'rgba(0,0,0,0)');
+        ctx.fillStyle = wg; ctx.fillRect(0, 0, W, H);
+      }
     }
 
     // 2) 星点（仅原版星空模板）
@@ -347,6 +366,12 @@ export async function renderEpisode(script, opts = {}) {
         ctx.beginPath(); ctx.arc(s.x, s.y, s.r, 0, Math.PI * 2); ctx.fill();
       }
     }
+
+    // 2.4) 背景暗角：只压背景，纸卡画在它上面，卡面保持干净
+    const vgBg = ctx.createRadialGradient(W / 2, H / 2, H * 0.35, W / 2, H / 2, H * 0.78);
+    vgBg.addColorStop(0, 'rgba(0,0,0,0)');
+    vgBg.addColorStop(1, tpl.id === 'chat' ? 'rgba(0,0,0,0)' : 'rgba(0,0,0,0.55)');
+    ctx.fillStyle = vgBg; ctx.fillRect(0, 0, W, H);
 
     // 2.5) 模板纸面（报告卡 / 档案卡 / 终端面板）—— 画在背景之上、立绘之下
     drawTemplatePaper(ctx, tpl, {
@@ -386,13 +411,16 @@ export async function renderEpisode(script, opts = {}) {
       drawDust(ctx, W, H, t, dust, tpl.id === 'terminal' ? '150,235,225' : '240,225,200');
     }
 
-    // 4) 情绪光（模板族的纸卡要保色，氛围光压到 0.05）
-    const moodRGB = cur.mood === 'panic' ? '224,138,75' : cur.mood === 'relief' ? '200,182,238' : '110,150,200';
-    const moodAlpha = tpl.id === 'classic' ? 0.10 : 0.045;
-    const lg = ctx.createRadialGradient(W / 2, H * 0.42, 0, W / 2, H * 0.42, W * 0.95);
-    lg.addColorStop(0, `rgba(${moodRGB},${moodAlpha})`);
-    lg.addColorStop(1, tpl.id === 'classic' ? 'rgba(0,0,0,0.55)' : 'rgba(0,0,0,0.42)');
-    ctx.fillStyle = lg; ctx.fillRect(0, 0, W, H);
+    // 4) 情绪光：只有原版 classic 用（模板族的氛围已经在背景图和背景暗角里，纸卡不再被二次压暗）
+    if (tpl.id === 'classic') {
+      const moodRGB = cur.mood === 'panic' ? '224,138,75' : cur.mood === 'relief' ? '200,182,238' : '110,150,200';
+      const moodAlpha = 0.10;
+      const outAlpha = 0.55;
+      const lg = ctx.createRadialGradient(W / 2, H * 0.42, 0, W / 2, H * 0.42, W * 0.95);
+      lg.addColorStop(0, `rgba(${moodRGB},${moodAlpha})`);
+      lg.addColorStop(1, `rgba(0,0,0,${outAlpha})`);
+      ctx.fillStyle = lg; ctx.fillRect(0, 0, W, H);
+    }
 
     // 5) 顶部 HUD（仅原版模板；模板族的状态面板画在纸卡里）
     if (tpl.hud === 'classic') {
@@ -426,7 +454,32 @@ export async function renderEpisode(script, opts = {}) {
     }
 
     // 6) 台词（打字机）—— 片头卡 / 片尾卡期间不画，避免和标题叠字
-    if (cur && t >= 1.4 && t <= total - 1.9) {
+    if (tpl.id === 'chat') {
+      // 对话卡模板：台词已经在左侧卡里逐字打出来，底部只放本集标题（参考图的底部大字）
+      if (t >= 1.4 && t <= total - 1.9) {
+        const tfs = Math.round(20 * UIK);
+        ctx.font = `700 ${tfs}px ${fontFamily}`;
+        const tLines = wrapBalanced(ctx, script.title || 'AI 日记', W * 0.72);
+        const lh = tfs * 1.34;
+        const baseY = H * tpl.subtitle.yR - (tLines.length - 1) * lh;
+        // 轻底衬，只压暗画面下缘，不糊卡片
+        const bandTop = H * 0.72;
+        const bg = ctx.createLinearGradient(0, bandTop, 0, H);
+        bg.addColorStop(0, 'rgba(10,5,3,0)');
+        bg.addColorStop(0.45, 'rgba(10,5,3,0.34)');
+        bg.addColorStop(1, 'rgba(10,5,3,0.62)');
+        ctx.fillStyle = bg; ctx.fillRect(0, bandTop, W, H - bandTop);
+        ctx.textAlign = 'center';
+        tLines.forEach((ln, idx) => {
+          const y = baseY + idx * lh;
+          ctx.fillStyle = tpl.subtitle.shadow;
+          ctx.fillText(ln, W / 2 + 2, y + 2);
+          ctx.fillStyle = tpl.subtitle.color;
+          ctx.fillText(ln, W / 2, y);
+        });
+        ctx.textAlign = 'left';
+      }
+    } else if (cur && t >= 1.4 && t <= total - 1.9) {
       const inBeat = (t - cur.start) / cur.dur;
       const chars = [...cur.text];
       const shown = clamp(Math.floor(chars.length * Math.min(1, inBeat * 1.25)), 0, chars.length);
@@ -439,7 +492,7 @@ export async function renderEpisode(script, opts = {}) {
       const lastY = H * tpl.subtitle.yR;
       const baseY = lastY - (lines.length - 1) * lh;
       // 文字底衬（横屏字幕更高，带上沿要上移，否则多行会盖到立绘）
-      const bandTopR = W >= H ? 0.68 : tpl.subtitle.bandTopR;
+      const bandTopR = W >= H ? 0.80 : tpl.subtitle.bandTopR;
       const bandTop = H * bandTopR;
       const bg = ctx.createLinearGradient(0, bandTop, 0, H * Math.min(1, bandTopR + tpl.subtitle.bandBottom));
       bg.addColorStop(0, 'rgba(3,9,18,0)');
@@ -472,13 +525,10 @@ export async function renderEpisode(script, opts = {}) {
       ctx.fillRect(x, H - (W >= H ? 13 : 24), tw, 3);
     });
 
-    // 8) 颗粒 + 暗角
+    // 8) 颗粒（暗角已经压在背景层，卡片不再被二次压暗）
     ctx.globalAlpha = 0.05;
     ctx.drawImage(noise, 0, 0, W, H);
     ctx.globalAlpha = 1;
-    const vg = ctx.createRadialGradient(W / 2, H / 2, H * 0.35, W / 2, H / 2, H * 0.78);
-    vg.addColorStop(0, 'rgba(0,0,0,0)'); vg.addColorStop(1, 'rgba(0,0,0,0.55)');
-    ctx.fillStyle = vg; ctx.fillRect(0, 0, W, H);
 
     // 9) 片头卡
     if (t < 1.4) {

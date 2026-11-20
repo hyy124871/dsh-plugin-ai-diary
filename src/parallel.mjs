@@ -152,14 +152,14 @@ export async function renderEpisodeParallel(script, opts = {}) {
     fs.rmSync(tmpDir, { recursive: true, force: true });
   } catch {}
 
-  const w = Math.round((opts.width || script.output?.width || DEFAULTS.width) * (Number(opts.scale ?? script.output?.scale ?? DEFAULTS.scale) || 1));
-  const h = Math.round((opts.height || script.output?.height || DEFAULTS.height) * (Number(opts.scale ?? script.output?.scale ?? DEFAULTS.scale) || 1));
+  const sw = Number(opts.scale ?? script.output?.scale ?? DEFAULTS.scale) || 1;
+  const { width: rw, height: rh } = resolveSize(script, opts);
   return {
     file: outFile,
     frames,
     seconds: Number((frames / (opts.fps || script.output?.fps || DEFAULTS.fps)).toFixed(2)),
-    width: w,
-    height: h,
+    width: Math.round(rw * sw),
+    height: Math.round(rh * sw),
     fps: opts.fps || script.output?.fps || DEFAULTS.fps,
     scale: Number(opts.scale ?? script.output?.scale ?? DEFAULTS.scale) || 1,
     segments: segs.length,

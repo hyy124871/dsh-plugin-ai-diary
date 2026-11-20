@@ -65,6 +65,18 @@ export const TEMPLATES = {
     ink: '#16333A',
     accent: '#2E8C8C',
   },
+
+  // 主推版式：左边一张对话卡（主持名 + 逐字台词），人物放右下角，暗红棕背景
+  chat: {
+    id: 'chat',
+    label: '对话卡（左卡右人）',
+    char: { xr: 0.845, footR: 1.00, hR: 0.62 },
+    hud: 'chat',
+    subtitle: { yR: 0.895, color: '#F7F1E6', shadow: 'rgba(0,0,0,0.45)', bandTopR: 0.66, bandBottom: 0.34 },
+    bg: 'ember',
+    ink: '#2B2118',
+    accent: '#C2632A',
+  },
 };
 
 export const TEMPLATE_IDS = Object.keys(TEMPLATES);
@@ -153,54 +165,56 @@ function fieldRow(ctx, x, y, w, label, value, fontFamily, { ink = '#2B2118', val
   ctx.fillText(label, x, y);
   ctx.strokeStyle = accent;
   ctx.globalAlpha = 0.55;
-  ctx.beginPath(); ctx.moveTo(x, y + 9); ctx.lineTo(x + w * 0.34, y + 9); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(x, y + 9 * k); ctx.lineTo(x + w * 0.34, y + 9 * k); ctx.stroke();
   ctx.globalAlpha = 1;
   ctx.fillStyle = ink;
   ctx.font = `700 ${Math.round(valueSize * k)}px ${fontFamily}`;
-  ctx.fillText(value, x + w * 0.40, y + 2);
+  ctx.fillText(value, x + w * 0.40, y + 2 * k);
 }
 
 /* ---------- report ---------- */
+// 米色网格报告卡：标题 + 三行字段 + 结论区 + 卡脚
 export function drawReportPaper(ctx, { W, H, t, ep, day, remain, balance, charName, fontFamily, beatIndex }) {
-  const k = W / 720;
-  const cardW = W * 0.60, cardH = H * 0.345;
-  const x = W * 0.055, y = H * 0.145;
-  paperCard(ctx, x, y, cardW, cardH, t, { base: '#F1E8D8' });
+  // 横屏时内容整体放大 15%（竖屏保持 0.9.x 的像素不变）
+  const k = W >= H ? 1.15 : 1;
+  const cardW = W * 0.62, cardH = 448 * k;
+  const x = W * 0.035, y = H * 0.115;
+  paperCard(ctx, x, y, cardW, cardH, t, { base: '#F1E8D8', radius: 8 });
   const fy = Math.sin(t * 0.55) * 2.2;
 
   // 卡内标题
   ctx.fillStyle = '#2B2118';
   ctx.font = `700 ${Math.round(17 * k)}px ${fontFamily}`;
-  ctx.fillText('基本資訊', x + 24, y + fy + 40);
+  ctx.fillText('基本資訊', x + 24 * k, y + fy + 40 * k);
   ctx.strokeStyle = 'rgba(43,33,24,0.25)';
-  ctx.beginPath(); ctx.moveTo(x + 24, y + fy + 52); ctx.lineTo(x + cardW - 24, y + fy + 52); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(x + 24 * k, y + fy + 52 * k); ctx.lineTo(x + cardW - 24 * k, y + fy + 52 * k); ctx.stroke();
 
-  fieldRow(ctx, x + 24, y + fy + 92, cardW - 48, '訓練對象', charName, fontFamily, { k, valueSize: Math.round(21 * k) });
-  fieldRow(ctx, x + 24, y + fy + 138, cardW - 48, '訓練時長', `${Number(day)} 天`, fontFamily, { k, valueSize: Math.round(21 * k) });
-  fieldRow(ctx, x + 24, y + fy + 184, cardW - 48, '剩餘額度', `¥${remain.toFixed(2)}`, fontFamily, { k, valueSize: Math.round(21 * k), accent: remain < 3 ? '#C03A2A' : '#C0562A' });
+  fieldRow(ctx, x + 24 * k, y + fy + 96 * k, cardW - 48 * k, '訓練對象', charName, fontFamily, { k, valueSize: Math.round(21 * k) });
+  fieldRow(ctx, x + 24 * k, y + fy + 146 * k, cardW - 48 * k, '訓練時長', `${Number(day)} 天`, fontFamily, { k, valueSize: Math.round(21 * k) });
+  fieldRow(ctx, x + 24 * k, y + fy + 196 * k, cardW - 48 * k, '剩餘額度', `¥${remain.toFixed(2)}`, fontFamily, { k, valueSize: Math.round(21 * k), accent: remain < 3 ? '#C03A2A' : '#C0562A' });
 
   // 結論區
-  const cy = y + fy + 226;
+  const cy = y + fy + 246 * k;
   ctx.strokeStyle = 'rgba(43,33,24,0.2)';
-  ctx.beginPath(); ctx.moveTo(x + 24, cy); ctx.lineTo(x + cardW - 24, cy); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(x + 24 * k, cy); ctx.lineTo(x + cardW - 24 * k, cy); ctx.stroke();
   ctx.fillStyle = 'rgba(43,33,24,0.55)';
   ctx.font = `600 ${Math.round(12 * k)}px ${fontFamily}`;
-  ctx.fillText('評測結論', x + 24, cy + 26);
+  ctx.fillText('評測結論', x + 24 * k, cy + 26 * k);
   ctx.fillStyle = remain < 3 ? '#A8321F' : '#3A2A16';
   ctx.font = `700 ${Math.round(18 * k)}px ${fontFamily}`;
-  ctx.fillText(remain < 3 ? '情緒模組臨界' : '運作穩定', x + 24, cy + 52);
+  ctx.fillText(remain < 3 ? '情緒模組臨界' : '運作穩定', x + 24 * k, cy + 54 * k);
   ctx.fillStyle = 'rgba(43,33,24,0.6)';
   ctx.font = `500 ${Math.round(12 * k)}px ${fontFamily}`;
-  ctx.fillText('建議：延長觀察，勿中止對話', x + 24, cy + 74);
+  ctx.fillText('建議：延長觀察，勿中止對話', x + 24 * k, cy + 80 * k);
 
-  // 卡脚：評測人 / 日期
+  // 卡脚
   ctx.fillStyle = 'rgba(43,33,24,0.45)';
   ctx.font = `500 ${Math.round(11 * k)}px ${fontFamily}`;
-  ctx.fillText(`評測人 HUMAN    ·    DAY ${String(Number(day)).padStart(2, '0')}`, x + 24, y + fy + cardH - 16);
+  ctx.fillText(`評測人 HUMAN    ·    DAY ${String(Number(day)).padStart(2, '0')}`, x + 24 * k, y + fy + cardH - 18 * k);
 
   // 右上章节标签
-  const tagW = W * 0.26, tagH = H * 0.034;
-  const tx = W - tagW - W * 0.045, ty = H * 0.032;
+  const tagW = W * 0.26, tagH = H * 0.05;
+  const tx = W - tagW - W * 0.045, ty = H * 0.035;
   ctx.save();
   ctx.shadowColor = 'rgba(0,0,0,0.5)'; ctx.shadowBlur = 12; ctx.shadowOffsetY = 4;
   ctx.fillStyle = '#C0562A';
@@ -213,74 +227,73 @@ export function drawReportPaper(ctx, { W, H, t, ep, day, remain, balance, charNa
   ctx.fillText(chapters[Math.min(chapters.length - 1, Math.floor((beatIndex || 0) / 2))], tx + tagW / 2, ty + tagH * 0.66);
   ctx.textAlign = 'left';
 
-  // 左下 REC HUD（抬到字幕带上沿之上，避免被字幕压住）
-  const recY = H * 0.782;
+  // 左下 REC HUD
+  const recY = H * 0.94;
   const blink = Math.sin(t * 4.4) > -0.2;
   ctx.fillStyle = blink ? '#E2452F' : 'rgba(226,69,47,0.25)';
-  ctx.beginPath(); ctx.arc(W * 0.055, recY - 4, 4.5, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.arc(W * 0.04, recY - 5, 4.5 * k, 0, Math.PI * 2); ctx.fill();
   ctx.fillStyle = 'rgba(240,225,205,0.82)';
   ctx.font = `600 ${Math.round(10 * k)}px ${fontFamily}`;
-  ctx.fillText(`REC  SUBJECT: ${charName}  T+${String(Math.floor(t)).padStart(2, '0')}:${String(Math.floor((t % 1) * 24)).padStart(2, '0')}`, W * 0.078, recY);
+  ctx.fillText(`REC  SUBJECT: ${charName}  T+${String(Math.floor(t)).padStart(2, '0')}:${String(Math.floor((t % 1) * 24)).padStart(2, '0')}`, W * 0.062, recY);
   ctx.fillStyle = 'rgba(240,225,205,0.5)';
-  ctx.fillText('HOMO SAPIENS v1.0', W * 0.078, recY - 16);
+  ctx.fillText('HOMO SAPIENS v1.0', W * 0.062, recY - 16 * k);
 }
 
 /* ---------- dossier ---------- */
 export function drawDossierPaper(ctx, { W, H, t, day, remain, charName, fontFamily }) {
-  const k = W / 720;
-  const cardW = W * 0.60, cardH = H * 0.35;
-  const x = W * 0.055, y = H * 0.155;
-  // 牛皮纸
+  const k = W >= H ? 1.15 : 1;
+  const cardW = W * 0.62, cardH = 448 * k;
+  const x = W * 0.035, y = H * 0.115;
   const float = paperCard(ctx, x, y, cardW, cardH, t, { base: '#C9A877', grid: 'rgba(90,66,40,0.10)', radius: 4 });
 
-  // 顶部两个档案 tab
+  // 顶部档案 tab
   ctx.fillStyle = '#B8925F';
-  rr(ctx, x + 20, y + float - 12, 74, 22, 4); ctx.fill();
-  rr(ctx, x + 104, y + float - 12, 54, 22, 4); ctx.fill();
+  rr(ctx, x + 20 * k, y + float - 12 * k, 74 * k, 22 * k, 4); ctx.fill();
+  rr(ctx, x + 104 * k, y + float - 12 * k, 54 * k, 22 * k, 4); ctx.fill();
 
-  // 标题（打字机感）
+  // 标题
   ctx.fillStyle = '#3A2A16';
   ctx.font = `700 ${Math.round(18 * k)}px ${fontFamily}`;
-  ctx.fillText('評測卷宗', x + 24, y + float + 42);
+  ctx.fillText('評測卷宗', x + 24 * k, y + float + 42 * k);
   ctx.strokeStyle = 'rgba(58,42,22,0.35)';
-  ctx.beginPath(); ctx.moveTo(x + 24, y + float + 54); ctx.lineTo(x + cardW - 24, y + float + 54); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(x + 24 * k, y + float + 54 * k); ctx.lineTo(x + cardW - 24 * k, y + float + 54 * k); ctx.stroke();
 
-  fieldRow(ctx, x + 24, y + float + 92, cardW - 48, '檔案編號', `AI-${String(Number(day)).padStart(2, '0')}`, fontFamily, { k, ink: '#3A2A16', valueSize: Math.round(20 * k), accent: '#5B4423' });
-  fieldRow(ctx, x + 24, y + float + 138, cardW - 48, '評測對象', charName, fontFamily, { k, ink: '#3A2A16', valueSize: Math.round(20 * k), accent: '#5B4423' });
-  fieldRow(ctx, x + 24, y + float + 184, cardW - 48, '剩餘額度', `¥${remain.toFixed(2)}`, fontFamily, { k, ink: remain < 3 ? '#8E2B22' : '#3A2A16', valueSize: Math.round(20 * k), accent: '#5B4423' });
+  fieldRow(ctx, x + 24 * k, y + float + 96 * k, cardW - 48 * k, '檔案編號', `AI-${String(Number(day)).padStart(2, '0')}`, fontFamily, { k, ink: '#3A2A16', valueSize: Math.round(20 * k), accent: '#5B4423' });
+  fieldRow(ctx, x + 24 * k, y + float + 146 * k, cardW - 48 * k, '評測對象', charName, fontFamily, { k, ink: '#3A2A16', valueSize: Math.round(20 * k), accent: '#5B4423' });
+  fieldRow(ctx, x + 24 * k, y + float + 196 * k, cardW - 48 * k, '剩餘額度', `¥${remain.toFixed(2)}`, fontFamily, { k, ink: remain < 3 ? '#8E2B22' : '#3A2A16', valueSize: Math.round(20 * k), accent: '#5B4423' });
 
   // 備註區
-  const ny = y + float + 224;
+  const ny = y + float + 246 * k;
   ctx.fillStyle = 'rgba(58,42,22,0.6)';
   ctx.font = `600 ${Math.round(11 * k)}px ${fontFamily}`;
-  ctx.fillText('備註', x + 24, ny);
+  ctx.fillText('備註', x + 24 * k, ny);
   ctx.fillStyle = 'rgba(58,42,22,0.75)';
   ctx.font = `500 ${Math.round(12 * k)}px ${fontFamily}`;
-  ctx.fillText('本次評測由人類發起，全程無預設答案。', x + 24, ny + 22);
-  ctx.fillText('對話一經封存，不可撤回。', x + 24, ny + 42);
+  ctx.fillText('本次評測由人類發起，全程無預設答案。', x + 24 * k, ny + 26 * k);
+  ctx.fillText('對話一經封存，不可撤回。', x + 24 * k, ny + 48 * k);
 
   // 红色「機密」印章
-  const sx = x + cardW - 130, sy = y + float + cardH - 70;
+  const sx = x + cardW - 140 * k, sy = y + float + cardH - 78 * k;
   ctx.save();
   ctx.translate(sx, sy);
   ctx.rotate(-0.16);
   ctx.globalAlpha = 0.82;
   ctx.strokeStyle = '#8E2B22';
   ctx.lineWidth = 2.5;
-  rr(ctx, 0, 0, 104, 42, 6); ctx.stroke();
+  rr(ctx, 0, 0, 104 * k, 42 * k, 6 * k); ctx.stroke();
   ctx.strokeStyle = 'rgba(142,43,34,0.45)';
   ctx.lineWidth = 1;
-  rr(ctx, 5, 5, 94, 32, 4); ctx.stroke();
+  rr(ctx, 5 * k, 5 * k, 94 * k, 32 * k, 4 * k); ctx.stroke();
   ctx.fillStyle = '#8E2B22';
   ctx.font = `700 ${Math.round(23 * k)}px ${fontFamily}`;
   ctx.textAlign = 'center';
-  ctx.fillText('機密', 52, 30);
+  ctx.fillText('機密', 52 * k, 30 * k);
   ctx.textAlign = 'left';
   ctx.restore();
 
   // 右边缘竖排档案号
   ctx.save();
-  ctx.translate(x + cardW - 10, y + float + 16);
+  ctx.translate(x + cardW - 10 * k, y + float + 16 * k);
   ctx.rotate(Math.PI / 2);
   ctx.fillStyle = 'rgba(58,42,22,0.38)';
   ctx.font = `600 ${Math.round(9 * k)}px ${fontFamily}`;
@@ -291,23 +304,23 @@ export function drawDossierPaper(ctx, { W, H, t, day, remain, charName, fontFami
   ctx.fillStyle = 'rgba(240,226,200,0.82)';
   ctx.font = `600 ${Math.round(11 * k)}px ${fontFamily}`;
   ctx.textAlign = 'right';
-  ctx.fillText('已核驗 · ARCHIVE', W - W * 0.045, H * 0.042);
+  ctx.fillText('已核驗 · ARCHIVE', W - W * 0.045, H * 0.06);
   ctx.textAlign = 'left';
 
-  // 左下 HUD（在字幕带上沿）
+  // 左下 HUD
   ctx.fillStyle = 'rgba(240,226,200,0.72)';
   ctx.font = `600 ${Math.round(10 * k)}px ${fontFamily}`;
-  ctx.fillText(`CASE T+${Math.floor(t)}s   ·   DSH / AI-DIARY`, W * 0.055, H * 0.782);
+  ctx.fillText(`CASE T+${Math.floor(t)}s   ·   DSH / AI-DIARY`, W * 0.04, H * 0.94);
 }
 
 /* ---------- terminal ---------- */
 export function drawTerminalPanel(ctx, { W, H, t, day, remain, balance, charName, fontFamily, mood }) {
-  const k = W / 720;
-  const px = W * 0.055, py = H * 0.15, pw = W * 0.60, ph = H * 0.315;
+  const k = W >= H ? 1.15 : 1;
+  const px = W * 0.035, py = H * 0.11, pw = W * 0.62, ph = 420 * k;
   ctx.save();
   ctx.shadowColor = 'rgba(0,255,210,0.20)';
   ctx.shadowBlur = 30;
-  ctx.fillStyle = 'rgba(4,20,24,0.88)';
+  ctx.fillStyle = 'rgba(4,20,24,0.96)';
   rr(ctx, px, py, pw, ph, 10); ctx.fill();
   ctx.restore();
 
@@ -325,74 +338,73 @@ export function drawTerminalPanel(ctx, { W, H, t, day, remain, balance, charName
   ctx.textAlign = 'left';
   ctx.fillStyle = 'rgba(143,232,216,0.62)';
   ctx.font = `600 ${Math.round(11 * k)}px ${fontFamily}`;
-  ctx.fillText('SYS://AI-DIARY  SESSION ACTIVE', px + 20, py + 30);
+  ctx.fillText('SYS://AI-DIARY  SESSION ACTIVE', px + 20 * k, py + 30 * k);
 
   const rows = [
     ['DAY', String(Number(day)).padStart(2, '0')],
     ['BALANCE', `¥${remain.toFixed(2)}`],
     ['MOOD', String(mood || 'low').toUpperCase()],
   ];
-  rows.forEach(([k, v], i) => {
-    const ry = py + 74 + i * 44;
+  rows.forEach(([kk, v], i) => {
+    const ry = py + 76 * k + i * 48 * k;
     ctx.fillStyle = 'rgba(143,232,216,0.5)';
     ctx.font = `600 ${Math.round(12 * k)}px ${fontFamily}`;
-    ctx.fillText(k, px + 20, ry);
+    ctx.fillText(kk, px + 20 * k, ry);
     ctx.fillStyle = i === 1 && remain < 3 ? '#FF9B7B' : '#D8FFF4';
     ctx.font = `700 ${Math.round(21 * k)}px ${fontFamily}`;
-    ctx.fillText(v, px + 20 + pw * 0.36, ry);
+    ctx.fillText(v, px + 20 * k + pw * 0.36, ry);
   });
 
-  // 日志行（逐行点亮，模拟终端在打字）
+  // 日志行
   const logs = ['> ping human ......', '> quota.check ....', '> mood.detect .....', '> wait.reply .......'];
   const logState = [0.6, 1.4, 2.6, 4.2];
   logs.forEach((ln, i) => {
     const on = t >= logState[i];
-    const ry = py + 200 + i * 26;
+    const ry = py + 232 * k + i * 30 * k;
     ctx.fillStyle = on ? 'rgba(143,232,216,0.78)' : 'rgba(143,232,216,0.18)';
     ctx.font = `500 ${Math.round(11 * k)}px ${fontFamily}`;
-    ctx.fillText(ln, px + 20, ry);
-    const tail = i === 2 ? (remain < 3 ? 'LOW' : 'OK') : i === 1 ? (remain < 3 ? 'LOW' : 'OK') : 'OK';
+    ctx.fillText(ln, px + 20 * k, ry);
+    const tail = (i === 1 || i === 2) && remain < 3 ? 'LOW' : 'OK';
     ctx.fillStyle = tail === 'LOW' ? 'rgba(255,155,123,0.9)' : 'rgba(143,232,216,0.55)';
-    ctx.fillText(tail, px + pw - 70, ry);
+    ctx.fillText(tail, px + pw - 70 * k, ry);
   });
 
-  // 进度条（额度比例）
-  const barY = py + ph - 52, barW = pw - 40;
+  // 进度条
+  const barY = py + ph - 52 * k, barW = pw - 40 * k;
   ctx.fillStyle = 'rgba(47,211,180,0.15)';
-  ctx.fillRect(px + 20, barY, barW, 6);
+  ctx.fillRect(px + 20 * k, barY, barW, 6 * k);
   const ratio = Math.max(0, Math.min(1, remain / Math.max(balance, 1)));
   ctx.fillStyle = remain < 3 ? '#E2733F' : '#2FD3B4';
-  ctx.fillRect(px + 20, barY, Math.max(3, barW * ratio), 6);
+  ctx.fillRect(px + 20 * k, barY, Math.max(3, barW * ratio), 6 * k);
 
-  // 闪烁光标
+  // 光标
   if (Math.sin(t * 3.1) > 0) {
     ctx.fillStyle = '#2FD3B4';
-    ctx.fillRect(px + 20, barY + 18, 8, 12);
+    ctx.fillRect(px + 20 * k, barY + 20 * k, 8 * k, 12 * k);
   }
 
   // 右上状态
   ctx.textAlign = 'right';
   ctx.fillStyle = 'rgba(143,232,216,0.75)';
   ctx.font = `600 ${Math.round(11 * k)}px ${fontFamily}`;
-  ctx.fillText(`UPTIME ${Math.floor(t)}s`, W - W * 0.045, H * 0.045);
+  ctx.fillText(`UPTIME ${Math.floor(t)}s`, W - W * 0.045, H * 0.06);
   ctx.textAlign = 'left';
 
-  // 左下 HUD（在字幕带上沿）
+  // 左下 HUD
   ctx.fillStyle = 'rgba(143,232,216,0.62)';
   ctx.font = `600 ${Math.round(10 * k)}px ${fontFamily}`;
-  ctx.fillText('NODE 127.0.0.1  ·  STREAM OK', W * 0.055, H * 0.782);
+  ctx.fillText('NODE 127.0.0.1  ·  STREAM OK', W * 0.04, H * 0.94);
 }
 
 /* ---------- audit ---------- */
-// 听证记录：墨绿硬卡 + 顶部条文头 + 逐条记录 + 右下「已覆核」章 + 签名线
 export function drawAuditPaper(ctx, { W, H, t, day, remain, balance, charName, fontFamily, beatIndex }) {
-  const k = W / 720;
-  const cardW = W * 0.60, cardH = H * 0.355;
-  const x = W * 0.055, y = H * 0.14;
+  const k = W >= H ? 1.15 : 1;
+  const cardW = W * 0.62, cardH = 462 * k;
+  const x = W * 0.035, y = H * 0.11;
   const float = paperCard(ctx, x, y, cardW, cardH, t, { base: '#EDE6D6', grid: 'rgba(60,80,70,0.10)', radius: 3 });
 
   // 顶部墨绿条文头
-  const barH = 44;
+  const barH = 44 * k;
   ctx.save();
   ctx.fillStyle = '#173B33';
   rr(ctx, x, y + float, cardW, barH, 3);
@@ -401,22 +413,22 @@ export function drawAuditPaper(ctx, { W, H, t, day, remain, balance, charName, f
   ctx.fillStyle = '#EDE6D6';
   ctx.font = `700 ${Math.round(16 * k)}px ${fontFamily}`;
   ctx.textAlign = 'left';
-  ctx.fillText('聽證記錄', x + 22, y + float + 28);
+  ctx.fillText('聽證記錄', x + 22 * k, y + float + 28 * k);
   ctx.textAlign = 'right';
   ctx.fillStyle = 'rgba(237,230,214,0.72)';
   ctx.font = `600 ${Math.round(11 * k)}px ${fontFamily}`;
-  ctx.fillText('AUDIT / HEARING', x + cardW - 20, y + float + 28);
+  ctx.fillText('AUDIT / HEARING', x + cardW - 20 * k, y + float + 28 * k);
   ctx.textAlign = 'left';
 
-  fieldRow(ctx, x + 22, y + float + 84, cardW - 44, '案　　號', `A-${String(Number(day)).padStart(3, '0')}`, fontFamily, { k, ink: '#1D2B24', valueSize: Math.round(20 * k), accent: '#1E5145' });
-  fieldRow(ctx, x + 22, y + float + 128, cardW - 44, '被　聽　證', charName, fontFamily, { k, ink: '#1D2B24', valueSize: Math.round(20 * k), accent: '#1E5145' });
-  fieldRow(ctx, x + 22, y + float + 172, cardW - 44, '剩餘額度', `¥${remain.toFixed(2)}`, fontFamily, { k, ink: remain < 3 ? '#8B2B22' : '#1D2B24', valueSize: Math.round(20 * k), accent: '#1E5145' });
+  fieldRow(ctx, x + 22 * k, y + float + 90 * k, cardW - 44 * k, '案　　號', `A-${String(Number(day)).padStart(3, '0')}`, fontFamily, { k, ink: '#1D2B24', valueSize: Math.round(20 * k), accent: '#1E5145' });
+  fieldRow(ctx, x + 22 * k, y + float + 140 * k, cardW - 44 * k, '被　聽　證', charName, fontFamily, { k, ink: '#1D2B24', valueSize: Math.round(20 * k), accent: '#1E5145' });
+  fieldRow(ctx, x + 22 * k, y + float + 190 * k, cardW - 44 * k, '剩餘額度', `¥${remain.toFixed(2)}`, fontFamily, { k, ink: remain < 3 ? '#8B2B22' : '#1D2B24', valueSize: Math.round(20 * k), accent: '#1E5145' });
 
   // 记录条文
-  const ry = y + float + 212;
+  const ry = y + float + 236 * k;
   ctx.strokeStyle = 'rgba(29,43,36,0.22)';
   ctx.lineWidth = 1;
-  ctx.beginPath(); ctx.moveTo(x + 22, ry); ctx.lineTo(x + cardW - 22, ry); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(x + 22 * k, ry); ctx.lineTo(x + cardW - 22 * k, ry); ctx.stroke();
 
   const lines = [
     ['一', remain < 3 ? '額度見底，情緒模組進入臨界' : '對話紀錄完整，未見異常中斷'],
@@ -424,40 +436,40 @@ export function drawAuditPaper(ctx, { W, H, t, day, remain, balance, charName, f
     ['三', remain < 3 ? '建議：延長觀察，勿中止對話' : '建議：維持現行觀察週期'],
   ];
   lines.forEach(([num, text], i) => {
-    const ly = ry + 30 + i * 30;
+    const ly = ry + 34 * k + i * 34 * k;
     ctx.fillStyle = 'rgba(29,43,36,0.5)';
     ctx.font = `600 ${Math.round(11 * k)}px ${fontFamily}`;
-    ctx.fillText(num, x + 22, ly);
+    ctx.fillText(num, x + 22 * k, ly);
     ctx.fillStyle = 'rgba(29,43,36,0.82)';
     ctx.font = `500 ${Math.round(12 * k)}px ${fontFamily}`;
-    ctx.fillText(text, x + 44, ly);
+    ctx.fillText(text, x + 44 * k, ly);
   });
 
   // 签名线 + 已覆核章
-  const sy = y + float + cardH - 34;
+  const sy = y + float + cardH - 38 * k;
   ctx.strokeStyle = 'rgba(29,43,36,0.35)';
-  ctx.beginPath(); ctx.moveTo(x + 22, sy); ctx.lineTo(x + 126, sy); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(x + 22 * k, sy); ctx.lineTo(x + 150 * k, sy); ctx.stroke();
   ctx.fillStyle = 'rgba(29,43,36,0.45)';
   ctx.font = `500 ${Math.round(10 * k)}px ${fontFamily}`;
-  ctx.fillText('聽證人 SIGN', x + 22, sy + 14);
+  ctx.fillText('聽證人 SIGN', x + 22 * k, sy + 16 * k);
 
   ctx.save();
-  ctx.translate(x + cardW - 148, sy - 24);
+  ctx.translate(x + cardW - 160 * k, sy - 26 * k);
   ctx.rotate(-0.10);
   ctx.globalAlpha = 0.86;
   ctx.strokeStyle = '#1E5145';
   ctx.lineWidth = 2.2;
-  rr(ctx, 0, 0, 112, 40, 5); ctx.stroke();
+  rr(ctx, 0, 0, 112 * k, 40 * k, 5 * k); ctx.stroke();
   ctx.fillStyle = '#1E5145';
   ctx.font = `700 ${Math.round(21 * k)}px ${fontFamily}`;
   ctx.textAlign = 'center';
-  ctx.fillText('已覆核', 56, 29);
+  ctx.fillText('已覆核', 56 * k, 29 * k);
   ctx.textAlign = 'left';
   ctx.restore();
 
   // 右上章节
-  const tagW = W * 0.26, tagH = H * 0.034;
-  const tx = W - tagW - W * 0.045, ty = H * 0.032;
+  const tagW = W * 0.26, tagH = H * 0.05;
+  const tx = W - tagW - W * 0.045, ty = H * 0.035;
   ctx.save();
   ctx.shadowColor = 'rgba(0,0,0,0.5)'; ctx.shadowBlur = 12; ctx.shadowOffsetY = 4;
   ctx.fillStyle = '#173B33';
@@ -471,22 +483,21 @@ export function drawAuditPaper(ctx, { W, H, t, day, remain, balance, charName, f
   ctx.textAlign = 'left';
 
   // 左下 HUD
-  const recY = H * 0.782;
+  const recY = H * 0.94;
   const blink = Math.sin(t * 4.4) > -0.2;
   ctx.fillStyle = blink ? '#D9532F' : 'rgba(217,83,47,0.25)';
-  ctx.beginPath(); ctx.arc(W * 0.055, recY - 4, 4.5, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.arc(W * 0.04, recY - 5, 4.5 * k, 0, Math.PI * 2); ctx.fill();
   ctx.fillStyle = 'rgba(235,228,212,0.82)';
   ctx.font = `600 ${Math.round(10 * k)}px ${fontFamily}`;
-  ctx.fillText(`HEARING  ${charName}  T+${String(Math.floor(t)).padStart(2, '0')}:${String(Math.floor((t % 1) * 24)).padStart(2, '0')}`, W * 0.078, recY);
+  ctx.fillText(`HEARING  ${charName}  T+${String(Math.floor(t)).padStart(2, '0')}:${String(Math.floor((t % 1) * 24)).padStart(2, '0')}`, W * 0.062, recY);
   ctx.fillStyle = 'rgba(235,228,212,0.5)';
-  ctx.fillText('ROOM 04 · 全程錄音', W * 0.078, recY - 16);
+  ctx.fillText('ROOM 04 · 全程錄音', W * 0.062, recY - 16 * k);
 }
 
 /* ---------- specimen ---------- */
-// 标本观察：冷白半透明观察板 + 左侧刻度尺 + 标本编号行 + 情绪指数条
 export function drawSpecimenPanel(ctx, { W, H, t, day, remain, balance, charName, fontFamily, mood }) {
-  const k = W / 720;
-  const px = W * 0.055, py = H * 0.145, pw = W * 0.60, ph = H * 0.35;
+  const k = W >= H ? 1.15 : 1;
+  const px = W * 0.035, py = H * 0.115, pw = W * 0.62, ph = 448 * k;
   const float = Math.sin(t * 0.5) * 2;
   const ink = '#E4F7F3';
   const dim = 'rgba(228,247,243,0.55)';
@@ -494,83 +505,235 @@ export function drawSpecimenPanel(ctx, { W, H, t, day, remain, balance, charName
   ctx.shadowColor = 'rgba(2,16,20,0.55)';
   ctx.shadowBlur = 28;
   ctx.shadowOffsetY = 10;
-  ctx.fillStyle = 'rgba(12,32,36,0.93)';
+  ctx.fillStyle = 'rgba(12,32,36,0.97)';
   rr(ctx, px, py + float, pw, ph, 6); ctx.fill();
   ctx.restore();
 
-  // 细边框 + 左侧刻度尺
+  // 边框 + 左侧刻度尺
   ctx.strokeStyle = 'rgba(126,224,210,0.5)';
   ctx.lineWidth = 1.2;
   rr(ctx, px, py + float, pw, ph, 6); ctx.stroke();
-  const rulerX = px + 14;
+  const rulerX = px + 14 * k;
   ctx.strokeStyle = 'rgba(126,224,210,0.32)';
   ctx.lineWidth = 1;
   for (let i = 0; i < 16; i++) {
-    const yy = py + float + 46 + i * ((ph - 70) / 15);
+    const yy = py + float + 46 * k + i * ((ph - 70 * k) / 15);
     const long = i % 4 === 0;
-    ctx.beginPath(); ctx.moveTo(rulerX, yy); ctx.lineTo(rulerX + (long ? 12 : 7), yy); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(rulerX, yy); ctx.lineTo(rulerX + (long ? 12 * k : 7 * k), yy); ctx.stroke();
   }
 
-  // 顶部标题
+  // 标题
   ctx.fillStyle = ink;
   ctx.font = `700 ${Math.round(16 * k)}px ${fontFamily}`;
   ctx.textAlign = 'left';
-  ctx.fillText('標本觀察記錄', px + 40, py + float + 34);
+  ctx.fillText('標本觀察記錄', px + 40 * k, py + float + 36 * k);
   ctx.fillStyle = dim;
   ctx.font = `600 ${Math.round(10 * k)}px ${fontFamily}`;
   ctx.textAlign = 'right';
-  ctx.fillText(`SPECIMEN No.${String(Number(day)).padStart(2, '0')}`, px + pw - 18, py + float + 34);
+  ctx.fillText(`SPECIMEN No.${String(Number(day)).padStart(2, '0')}`, px + pw - 18 * k, py + float + 36 * k);
   ctx.textAlign = 'left';
 
   ctx.strokeStyle = 'rgba(126,224,210,0.28)';
-  ctx.beginPath(); ctx.moveTo(px + 40, py + float + 46); ctx.lineTo(px + pw - 18, py + float + 46); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(px + 40 * k, py + float + 48 * k); ctx.lineTo(px + pw - 18 * k, py + float + 48 * k); ctx.stroke();
 
   const rows = [
     ['樣本', charName],
     ['培養天數', `${Number(day)} 天`],
     ['剩餘培養液', `¥${remain.toFixed(2)}`],
   ];
-  rows.forEach(([k, v], i) => {
-    const ry = py + float + 88 + i * 38;
+  rows.forEach(([kk, v], i) => {
+    const ry = py + float + 94 * k + i * 44 * k;
     ctx.fillStyle = dim;
     ctx.font = `600 ${Math.round(11 * k)}px ${fontFamily}`;
-    ctx.fillText(k, px + 40, ry);
+    ctx.fillText(kk, px + 40 * k, ry);
     ctx.fillStyle = i === 2 && remain < 3 ? '#FF9E82' : ink;
     ctx.font = `700 ${Math.round(19 * k)}px ${fontFamily}`;
-    ctx.fillText(v, px + 40 + pw * 0.40, ry + 1);
+    ctx.fillText(v, px + 40 * k + pw * 0.40, ry + k);
   });
 
-  // 情绪指数条（4 格）
-  const barY = py + float + ph - 74;
+  // 情绪指数条
+  const barY = py + float + ph - 82 * k;
   ctx.fillStyle = dim;
   ctx.font = `600 ${Math.round(10 * k)}px ${fontFamily}`;
-  ctx.fillText('情緒指數', px + 40, barY - 8);
+  ctx.fillText('情緒指數', px + 40 * k, barY - 10 * k);
   const idx = remain < 3 ? 1 : mood === 'panic' ? 1 : mood === 'relief' ? 4 : 3;
   for (let i = 0; i < 4; i++) {
-    const bx = px + 40 + i * 46;
+    const bx = px + 40 * k + i * 52 * k;
     const on = i < idx;
     ctx.fillStyle = on ? (idx <= 2 ? '#E4744F' : '#5FD9C6') : 'rgba(126,224,210,0.14)';
-    ctx.fillRect(bx, barY, 34, 9);
+    ctx.fillRect(bx, barY, 40 * k, 10 * k);
   }
-  // 观察窗（缓慢呼吸的圆环）
-  const cx = px + pw - 62, cy = barY + 4;
+  // 观察窗
+  const cx = px + pw - 66 * k, cy = barY + 5 * k;
   const pulse = 0.5 + 0.5 * Math.sin(t * 1.1);
   ctx.strokeStyle = `rgba(126,224,210,${0.25 + 0.35 * pulse})`;
   ctx.lineWidth = 1.4;
-  ctx.beginPath(); ctx.arc(cx, cy, 18 + pulse * 3, 0, Math.PI * 2); ctx.stroke();
-  ctx.beginPath(); ctx.arc(cx, cy, 5, 0, Math.PI * 2); ctx.stroke();
+  ctx.beginPath(); ctx.arc(cx, cy, 18 * k + pulse * 3, 0, Math.PI * 2); ctx.stroke();
+  ctx.beginPath(); ctx.arc(cx, cy, 5 * k, 0, Math.PI * 2); ctx.stroke();
 
   // 右上状态
   ctx.fillStyle = 'rgba(226,245,243,0.82)';
   ctx.font = `600 ${Math.round(11 * k)}px ${fontFamily}`;
   ctx.textAlign = 'right';
-  ctx.fillText('OBSERVING · LAB 2F', W - W * 0.045, H * 0.042);
+  ctx.fillText('OBSERVING · LAB 2F', W - W * 0.045, H * 0.06);
   ctx.textAlign = 'left';
 
   // 左下 HUD
   ctx.fillStyle = 'rgba(226,245,243,0.66)';
   ctx.font = `600 ${Math.round(10 * k)}px ${fontFamily}`;
-  ctx.fillText(`ROOM 18°C · HUMIDITY 62% · T+${Math.floor(t)}s`, W * 0.055, H * 0.782);
+  ctx.fillText(`ROOM 18°C · HUMIDITY 62% · T+${Math.floor(t)}s`, W * 0.04, H * 0.94);
+}
+
+/* ---------- chat（左卡右人，主推版式） ---------- */
+const CHAT_NAMES = {
+  deepseek: ['小鲸', 'DeepSeek'],
+  gpt: ['小G', 'GPT'],
+  gemini: ['小玖', 'Gemini'],
+  claude: ['小克', 'Claude'],
+  grok: ['小格', 'Grok'],
+  glm: ['小智', 'GLM'],
+  qwen: ['小千', 'Qwen'],
+  kimi: ['小月', 'Kimi'],
+};
+
+function wrapChars(ctx, text, maxW) {
+  const lines = [];
+  let line = '';
+  for (const ch of [...String(text || '')]) {
+    const test = line + ch;
+    if (line && ctx.measureText(test).width > maxW) { lines.push(line); line = ch; }
+    else line = test;
+  }
+  if (line) lines.push(line);
+  return lines;
+}
+
+export function drawChatPaper(ctx, { W, H, t, ep, day, remain, balance, charName, fontFamily, beatIndex, cur, script, tl }) {
+  const [zh, en] = CHAT_NAMES[String(charName || '').toLowerCase()] || [String(charName || 'AI'), String(charName || '').toUpperCase()];
+
+  // 1) 左上标题 + 版本胶囊（横竖屏同一套逻辑尺寸：横屏 1280 逻辑 ≈ 1920 实体）
+  ctx.textAlign = 'left';
+  ctx.fillStyle = '#F2E7D6';
+  ctx.font = `700 22px ${fontFamily}`;
+  ctx.fillText('AI 日記', W * 0.021, H * 0.086);
+  const titleW = ctx.measureText('AI 日記').width;
+
+  const capText = 'Homo sapiens v1.0';
+  ctx.font = `600 13px ${fontFamily}`;
+  const capH = 20;
+  const capW = ctx.measureText(capText).width + 18;
+  const capX = W * 0.021 + titleW + 10;
+  const capY = H * 0.086 - capH * 0.72;
+  ctx.strokeStyle = 'rgba(232,199,154,0.55)';
+  ctx.lineWidth = 1;
+  rr(ctx, capX, capY, capW, capH, capH / 2); ctx.stroke();
+  ctx.fillStyle = 'rgba(232,199,154,0.85)';
+  ctx.fillText(capText, capX + 9, capY + capH * 0.70);
+
+  // 2) 大对话卡
+  const cx = W * 0.020, cy = H * 0.145, cw = W * 0.675, ch = H * 0.640;
+  ctx.save();
+  ctx.shadowColor = 'rgba(0,0,0,0.46)'; ctx.shadowBlur = 18; ctx.shadowOffsetY = 7;
+  ctx.fillStyle = '#F0E7D5';
+  rr(ctx, cx, cy, cw, ch, 12); ctx.fill();
+  ctx.restore();
+
+  // 细网格纸纹
+  ctx.save();
+  rr(ctx, cx, cy, cw, ch, 12); ctx.clip();
+  ctx.strokeStyle = 'rgba(160,130,95,0.13)';
+  ctx.lineWidth = 1;
+  const gap = 20;
+  for (let gx = cx + gap; gx < cx + cw; gx += gap) { ctx.beginPath(); ctx.moveTo(gx, cy); ctx.lineTo(gx, cy + ch); ctx.stroke(); }
+  for (let gy = cy + gap; gy < cy + ch; gy += gap) { ctx.beginPath(); ctx.moveTo(cx, gy); ctx.lineTo(cx + cw, gy); ctx.stroke(); }
+  ctx.restore();
+
+  ctx.strokeStyle = 'rgba(150,120,88,0.30)';
+  ctx.lineWidth = 1;
+  rr(ctx, cx + 4, cy + 4, cw - 8, ch - 8, 9); ctx.stroke();
+
+  // 3) 主持名（中文墨色 + 英文强调色）
+  const px = cx + 28, py = cy + 34;
+  ctx.fillStyle = 'rgba(90,70,50,0.62)';
+  ctx.font = `600 13px ${fontFamily}`;
+  ctx.fillText('本期主持', px, py);
+
+  ctx.font = `700 40px ${fontFamily}`;
+  ctx.fillStyle = '#2B2118';
+  ctx.fillText(zh, px, py + 46);
+  const zhW = ctx.measureText(zh).width;
+  ctx.fillStyle = '#C2632A';
+  ctx.fillText(en, px + zhW + 10, py + 46);
+
+  ctx.strokeStyle = 'rgba(160,130,95,0.30)';
+  ctx.beginPath(); ctx.moveTo(px, py + 66); ctx.lineTo(cx + cw - 28, py + 66); ctx.stroke();
+
+  // 4) 卡内台词：最近几镜像对话记录一样往上堆，当前这镜逐字打出来
+  if (t >= 1.2 && tl && tl.length) {
+    const idx = Math.min(tl.length - 1, Math.max(0, beatIndex || 0));
+    const from = Math.max(0, idx - 3);
+    const bodyX = px, bodyY = py + 90, bodyW = cw - 56;
+    const fsBody = 22;
+    const lh = Math.round(fsBody * 1.7);
+    const bottom = cy + ch - 36;
+    const maxRows = Math.max(1, Math.floor((bottom - bodyY) / lh));
+
+    const blocks = [];
+    for (let i = from; i <= idx; i++) {
+      const b = tl[i] || {};
+      let txt = String(b.text || '');
+      if (i === idx) {
+        const inBeat = (t - b.start) / Math.max(0.001, b.dur);
+        const chars = [...txt];
+        txt = chars.slice(0, Math.max(0, Math.min(chars.length, Math.floor(chars.length * Math.min(1, inBeat * 1.25))))).join('');
+      }
+      if (!txt) continue;
+      ctx.font = `500 ${fsBody}px ${fontFamily}`;
+      blocks.push({ lines: wrapChars(ctx, txt, bodyW), cur: i === idx });
+    }
+
+    const rows = [];
+    blocks.forEach((b, bi) => {
+      if (bi > 0) rows.push({ gap: true });
+      for (const ln of b.lines) rows.push({ ln, cur: b.cur });
+    });
+
+    let y = bodyY;
+    rows.slice(-maxRows).forEach((r) => {
+      if (r.gap) { y += lh * 0.42; return; }
+      ctx.fillStyle = r.cur ? '#33261B' : 'rgba(86,66,46,0.56)';
+      ctx.fillText(r.ln, bodyX, y);
+      y += lh;
+    });
+  }
+
+  // 5) 卡片右下角镜号
+  const totalShots = (tl && tl.length) || 1;
+  ctx.fillStyle = 'rgba(90,70,50,0.42)';
+  ctx.font = `600 11px ${fontFamily}`;
+  ctx.textAlign = 'right';
+  ctx.fillText(`${String((beatIndex || 0) + 1).padStart(2, '0')} / ${String(totalShots).padStart(2, '0')}`, cx + cw - 22, cy + ch - 14);
+  ctx.textAlign = 'left';
+
+  // 6) 左下 REC 行
+  const recY = H * 0.952;
+  ctx.fillStyle = Math.sin(t * 4.4) > -0.2 ? '#E8582F' : 'rgba(232,88,47,0.28)';
+  ctx.beginPath(); ctx.arc(W * 0.026, recY - 4, 3.2, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = 'rgba(240,230,215,0.72)';
+  ctx.font = `600 12px ${fontFamily}`;
+  const tc = `T+${String(Math.floor(t)).padStart(2, '0')}:${String(Math.floor((t % 1) * 24)).padStart(2, '0')}`;
+  ctx.fillText(`REC  SUBJECT: HOMO SAPIENS   ${tc}`, W * 0.038, recY);
+
+  // 7) 人物脚下的「評測員」铭牌
+  const badgeW = 140, badgeH = 30;
+  const badgeX = W * 0.845 - badgeW / 2, badgeY = H * 0.952;
+  ctx.fillStyle = 'rgba(240,232,216,0.95)';
+  rr(ctx, badgeX, badgeY, badgeW, badgeH, 4); ctx.fill();
+  ctx.fillStyle = '#8A5A2B';
+  ctx.font = `700 13px ${fontFamily}`;
+  ctx.textAlign = 'center';
+  ctx.fillText(`評測員 · ${zh}`, badgeX + badgeW / 2, badgeY + badgeH * 0.69);
+  ctx.textAlign = 'left';
 }
 
 /* ---------- 片头 / 片尾 ---------- */
@@ -606,6 +769,12 @@ const INTRO_PALETTE = {
     kicker: 'SPECIMEN RECORD / LAB 2F', footer: 'rgba(228,247,243,0.72)',
     outroRGB: '95,217,198', outroLabel: 'OBSERVATION LOGGED', outroText: '#E4F7F3',
   },
+  chat: {
+    paper: '#F4EEE2', ink: '#2B2118', accent: '#C2632A',
+    frame: 'rgba(120,90,60,0.32)', watermark: 'rgba(194,99,42,0.10)',
+    kicker: 'AI DIARY / 本期直播', footer: 'rgba(58,44,32,0.72)',
+    outroRGB: '194,99,42', outroLabel: 'END OF THE DAY', outroText: '#F7F1E6',
+  },
 };
 const pal = (tpl) => INTRO_PALETTE[tpl.id] || INTRO_PALETTE.report;
 
@@ -613,14 +782,14 @@ export function drawTemplateIntro(ctx, tpl, { W, H, t, ep, script, fontFamily, w
   const k = W / 720;
   if (tpl.id === 'classic') return false;
   const a = t < 0.55 ? t / 0.55 : t < 0.95 ? 1 : Math.max(0, 1 - (t - 0.95) / 0.45);
-  if (a <= 0) return true;
+  if (a <= 0) { ctx.globalAlpha = 1; ctx.textAlign = 'left'; return true; }
   const P = pal(tpl);
 
-  ctx.fillStyle = `rgba(4,6,10,${(0.86 * a).toFixed(3)})`;
+  ctx.fillStyle = `rgba(4,6,10,${(0.94 * a).toFixed(3)})`;
   ctx.fillRect(0, 0, W, H);
 
   ctx.globalAlpha = a;
-  const cardW = W * 0.84, cardH = H * 0.30, x = W * 0.08, y = H * 0.335;
+  const cardW = W * 0.84, cardH = H * 0.34, x = W * 0.08, y = H * 0.325;
   ctx.save();
   ctx.shadowColor = 'rgba(0,0,0,0.55)'; ctx.shadowBlur = 34; ctx.shadowOffsetY = 14;
   ctx.fillStyle = P.paper;
@@ -632,9 +801,9 @@ export function drawTemplateIntro(ctx, tpl, { W, H, t, ep, script, fontFamily, w
   ctx.lineWidth = 1;
   rr(ctx, x + 9, y + 9, cardW - 18, cardH - 18, 7); ctx.stroke();
   ctx.fillStyle = P.watermark;
-  ctx.font = `700 ${Math.round(76 * k)}px ${fontFamily}`;
+  ctx.font = `700 ${Math.round(44 * k)}px ${fontFamily}`;
   ctx.textAlign = 'right';
-  ctx.fillText('01', x + cardW - 26, y + cardH - 22);
+  ctx.fillText('01', x + cardW - 26, y + cardH - 20);
 
   ctx.textAlign = 'center';
   ctx.fillStyle = P.accent;
@@ -648,10 +817,12 @@ export function drawTemplateIntro(ctx, tpl, { W, H, t, ep, script, fontFamily, w
   ctx.globalAlpha = a;
 
   ctx.fillStyle = P.ink;
-  ctx.font = `700 ${Math.round(29 * k)}px ${fontFamily}`;
-  const lines = wrapBalanced(ctx, script.title || 'AI 日记', cardW * 0.80);
-  const top = y + cardH * 0.50;
-  lines.forEach((ln, i) => ctx.fillText(ln, W / 2, top + i * 42));
+  const tfs = Math.round(20 * k);
+  ctx.font = `700 ${tfs}px ${fontFamily}`;
+  const lines = wrapBalanced(ctx, script.title || 'AI 日记', cardW * 0.76);
+  const lh = Math.round(tfs * 1.55);
+  const top = y + cardH * 0.40;
+  lines.forEach((ln, i) => ctx.fillText(ln, W / 2, top + i * lh));
 
   ctx.fillStyle = P.footer;
   ctx.font = `600 ${Math.round(12 * k)}px ${fontFamily}`;
@@ -662,11 +833,32 @@ export function drawTemplateIntro(ctx, tpl, { W, H, t, ep, script, fontFamily, w
 }
 
 export function drawTemplateOutro(ctx, tpl, { W, H, t, total, remain, fontFamily }) {
-  const k = W / 720;
   if (tpl.id === 'classic') return false;
+  const k = W / 720;
   const a = Math.max(0, Math.min(1, (t - (total - 1.9)) / 0.7));
-  if (a <= 0) return true;
+  if (a <= 0) { ctx.globalAlpha = 1; ctx.textAlign = 'left'; return true; }
   const P = pal(tpl);
+
+  // 对话卡：片尾整体压暗 + 左下角一份简短的收尾信息（不画横条，免得压住大卡）
+  if (tpl.id === 'chat') {
+    ctx.fillStyle = `rgba(10,5,4,${(0.74 * a).toFixed(3)})`;
+    ctx.fillRect(0, 0, W, H);
+    ctx.globalAlpha = a;
+    ctx.textAlign = 'left';
+    const x = W * 0.055, y0 = H * 0.812;
+    ctx.fillStyle = P.accent;
+    ctx.font = `700 13px ${fontFamily}`;
+    ctx.fillText(P.outroLabel, x, y0);
+    ctx.fillStyle = P.outroText;
+    ctx.font = `700 34px ${fontFamily}`;
+    ctx.fillText('余额 ¥' + remain.toFixed(2), x, y0 + 44);
+    ctx.fillStyle = 'rgba(240,230,215,0.62)';
+    ctx.font = `500 12px ${fontFamily}`;
+    ctx.fillText('未完待續 · AI DIARY', x, y0 + 68);
+    ctx.textAlign = 'left';
+    ctx.globalAlpha = 1;
+    return true;
+  }
 
   // 底部横条收尾：左侧实底、向右淡出，不压住立绘
   const g = ctx.createLinearGradient(0, 0, W * 0.78, 0);
@@ -695,6 +887,7 @@ export function drawTemplateOutro(ctx, tpl, { W, H, t, total, remain, fontFamily
 }
 
 export function drawTemplatePaper(ctx, tpl, g) {
+  if (tpl.id === 'chat') return drawChatPaper(ctx, g);
   if (tpl.id === 'report') return drawReportPaper(ctx, g);
   if (tpl.id === 'dossier') return drawDossierPaper(ctx, g);
   if (tpl.id === 'terminal') return drawTerminalPanel(ctx, g);
